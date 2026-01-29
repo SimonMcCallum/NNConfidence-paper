@@ -1,0 +1,13 @@
+\begin{table}[h]
+\centering
+\caption{Fine-tuning Comparison: HLCC vs Cross-Entropy (Qwen2-1.5B, QLoRA, 5 epochs)}
+\begin{tabular}{lccccc}
+\toprule
+Loss Type & Acc Before & Acc After & ECE Before & ECE After & HLCC Score \\
+\midrule
+Cross-Entropy & 0.230 & 0.280 (+5\%) & 0.540 & 0.410 & -0.183 \\
+HLCC & 0.230 & \textbf{0.300} (+7\%) & 0.540 & \textbf{0.407} & \textbf{-0.160} \\
+\bottomrule
+\end{tabular}
+\label{tab:finetuning_comparison}
+\end{table}

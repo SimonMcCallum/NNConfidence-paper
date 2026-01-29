@@ -1,0 +1,15 @@
+\begin{table}[h]
+\centering
+\caption{Extended HLCC Training: Phi-2 (15 epochs, 1500 training examples, 150 validation examples)}
+\begin{tabular}{lcccc}
+\toprule
+Condition & Accuracy & Confidence & HLCC & ECE \\
+\midrule
+Baseline (entropy) & 0.400 & 0.176 & +0.436 & 0.226 \\
+Trained (HLCC head) & 0.400 & 0.267 & +0.419 & 0.133 \\
+\midrule
+$\Delta$ & +0.000 & +0.091 & -0.017 & \textbf{-0.093} \\
+\bottomrule
+\end{tabular}
+\label{tab:extended_phi2}
+\end{table}

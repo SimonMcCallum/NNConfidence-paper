@@ -1,0 +1,21 @@
+# LaTeX build artifacts
+*.aux
+*.log
+*.out
+*.bbl
+*.blg
+*.fls
+*.fdb_latexmk
+*.synctex.gz
+*.toc
+*.lof
+*.lot
+*.nav
+*.snm
+*.vrb
+
+# Generated standalone figure PDFs (built from build_*.tex wrappers)
+figures/build_*.pdf
+
+# Keep the gnuplot-generated fragment .tex and .pdf pairs
+# (these are the actual figure content used by \input{})
