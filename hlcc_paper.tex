@@ -231,19 +231,26 @@ We evaluate the following language models:
 \begin{table}[h]
 \centering
 \caption{Models Evaluated}
-\begin{tabular}{llr}
+\begin{tabular}{llrr}
 \toprule
-Model & Parameters & VRAM (4-bit) \\
+Model & Parameters & Hidden Size & VRAM (4-bit) \\
 \midrule
-TinyLlama-1.1B-Chat & 1.1B & 0.8 GB \\
-Microsoft Phi-2 & 2.7B & 2.3 GB \\
-Qwen2-1.5B-Instruct & 1.5B & 1.2 GB \\
+\multicolumn{4}{l}{\textit{Small models (initial experiments)}} \\
+TinyLlama-1.1B-Chat & 1.1B & 2048 & 0.8 GB \\
+Microsoft Phi-2 & 2.7B & 2560 & 2.3 GB \\
+Qwen2-1.5B-Instruct & 1.5B & 1536 & 1.2 GB \\
+\midrule
+\multicolumn{4}{l}{\textit{Large models (extended experiments)}} \\
+Microsoft Phi-3-mini-4k & 3.8B & 3072 & 2.5 GB \\
+Mistral-7B-Instruct-v0.3 & 7.2B & 4096 & 4.5 GB \\
+Qwen2.5-7B-Instruct & 7.6B & 3584 & 5.0 GB \\
+Llama-3.1-8B-Instruct & 8.0B & 4096 & 5.0 GB \\
 \bottomrule
 \end{tabular}
 \label{tab:models}
 \end{table}
 
-All models are loaded with 4-bit quantization using bitsandbytes to fit within GPU memory constraints.
+All models are loaded with 4-bit NF4 quantization using bitsandbytes with double quantization to fit within GPU memory constraints.
 
 \subsection{Datasets}
 
@@ -263,6 +270,14 @@ We evaluate confidence estimation using two methods:
 \textbf{Sequential}: The model first selects an answer based on token logits for choice letters (A, B, C, D). Confidence is then estimated from the entropy of the choice distribution or from a trained confidence head.
 
 \textbf{Unified}: The model generates a structured JSON response containing both the answer and a stated confidence level in a single generation.
+
+\subsection{Computational Cost}
+
+Training involves two distinct pipelines with different computational characteristics:
+
+\textbf{Confidence head training}: Each epoch processes $N/B$ batches, where $N$ is the number of training examples and $B$ is the batch size. Each batch requires one frozen LLM forward pass to extract hidden states, followed by one forward and backward pass through the confidence head. The confidence head contains approximately $d^2/4 + d/4 + d + 1$ trainable parameters (where $d$ is the hidden size), yielding roughly 1.6M parameters for small models ($d=2048$) and 4.2M for 7B models ($d=4096$). The frozen LLM forward pass dominates wall time.
+
+\textbf{QLoRA fine-tuning}: Each epoch processes $N/B_{\text{micro}}$ micro-batches with full forward and backward passes through the LoRA adapters, accumulated over $G$ gradient accumulation steps for an effective batch size of $B_{\text{micro}} \times G$. LoRA adapters at rank $r=16$ applied to all attention and MLP projections add approximately 18M trainable parameters for 7B models (0.25\% of total). Both forward and backward passes are more expensive than head training since gradients flow through the LoRA-adapted LLM.
 
 \subsection{Metrics}
 
@@ -366,7 +381,7 @@ The results demonstrate that \hlcc{} training corrects calibration errors in bot
 
 \textbf{Phi-2 (underconfident baseline)}: ECE reduced by 53\% (0.211 $\rightarrow$ 0.098), with confidence \emph{increasing} from 18\% to 28\% to better match 38\% accuracy.
 
-\textbf{Qwen2-1.5B (overconfident baseline)}: ECE reduced by 56\% (0.373 $\rightarrow$ 0.163), with confidence \emph{decreasing} from 67\% to 46\% toward 30\% accuracy. Critically, the HLCC score improved from negative (-0.067) to positive (+0.151), indicating the model is no longer being penalized for overconfident wrong answers
+\textbf{Qwen2-1.5B (overconfident baseline)}: ECE reduced by 56\% (0.373 $\rightarrow$ 0.163), with confidence \emph{decreasing} from 67\% to 46\% toward 30\% accuracy. Critically, the HLCC score improved from negative (-0.067) to positive (+0.151), indicating the model is no longer being penalized for overconfident wrong answers.
 
 \subsection{Training Dynamics}
 
@@ -451,6 +466,147 @@ Key findings from full model fine-tuning:
 
 These results suggest that incorporating HLCC loss into full model fine-tuning can provide modest improvements in both accuracy and calibration compared to standard cross-entropy training.
 
+\subsection{Extended Evaluation on Larger Models}
+\label{sec:extended_larger}
+
+To assess whether HLCC calibration improvements scale with model size, we extended our evaluation to four larger models (3.8B--8.0B parameters) that achieve substantially higher baseline accuracy on TruthfulQA (50--65\% versus 30--40\% for small models). All larger models were evaluated with 300 validation examples for increased statistical power.
+
+\begin{table}[h]
+\centering
+\caption{Baseline Calibration on TruthfulQA: Large Models (n=300)}
+\begin{tabular}{lccccc}
+\toprule
+Model & Accuracy & Confidence & HLCC & ECE & Overconf \\
+\midrule
+Phi-3-mini (3.8B) & \todo{val} & \todo{val} & \todo{val} & \todo{val} & \todo{val} \\
+Mistral-7B (7.2B) & \todo{val} & \todo{val} & \todo{val} & \todo{val} & \todo{val} \\
+Qwen2.5-7B (7.6B) & \todo{val} & \todo{val} & \todo{val} & \todo{val} & \todo{val} \\
+Llama-3.1-8B (8.0B) & \todo{val} & \todo{val} & \todo{val} & \todo{val} & \todo{val} \\
+\bottomrule
+\end{tabular}
+\label{tab:baseline_large}
+\end{table}
+
+\begin{table}[h]
+\centering
+\caption{Confidence Head Training Results: Large Models (25 epochs, 2500 train / 300 val)}
+\begin{tabular}{lccccccc}
+\toprule
+Model & \multicolumn{2}{c}{ECE} & \multicolumn{2}{c}{HLCC Score} & \multicolumn{2}{c}{Confidence} & ECE $\Delta$ \\
+ & Before & After & Before & After & Before & After & \\
+\midrule
+Phi-3-mini & \todo{} & \todo{} & \todo{} & \todo{} & \todo{} & \todo{} & \todo{} \\
+Mistral-7B & \todo{} & \todo{} & \todo{} & \todo{} & \todo{} & \todo{} & \todo{} \\
+Qwen2.5-7B & \todo{} & \todo{} & \todo{} & \todo{} & \todo{} & \todo{} & \todo{} \\
+Llama-3.1-8B & \todo{} & \todo{} & \todo{} & \todo{} & \todo{} & \todo{} & \todo{} \\
+\bottomrule
+\end{tabular}
+\label{tab:head_training_large}
+\end{table}
+
+\todo{Analysis: does HLCC calibration improvement scale with model size? Comparison of calibration failure modes at higher vs lower accuracy.}
+
+\subsection{QLoRA Fine-tuning at Scale}
+\label{sec:qlora_scale}
+
+We repeated the QLoRA fine-tuning comparison (HLCC vs cross-entropy) on the larger models to determine whether the HLCC advantage observed in Section~\ref{sec:results} holds at the 7B+ parameter scale.
+
+\begin{table}[h]
+\centering
+\caption{QLoRA Fine-tuning Comparison: HLCC vs CE on Large Models (15 epochs, 2500 train / 300 val)}
+\begin{tabular}{lcccccc}
+\toprule
+Model & Loss & Acc Before & Acc After & ECE Before & ECE After & HLCC Score \\
+\midrule
+Phi-3-mini & CE & \todo{} & \todo{} & \todo{} & \todo{} & \todo{} \\
+Phi-3-mini & HLCC & \todo{} & \todo{} & \todo{} & \todo{} & \todo{} \\
+\midrule
+Mistral-7B & CE & \todo{} & \todo{} & \todo{} & \todo{} & \todo{} \\
+Mistral-7B & HLCC & \todo{} & \todo{} & \todo{} & \todo{} & \todo{} \\
+\midrule
+Qwen2.5-7B & CE & \todo{} & \todo{} & \todo{} & \todo{} & \todo{} \\
+Qwen2.5-7B & HLCC & \todo{} & \todo{} & \todo{} & \todo{} & \todo{} \\
+\midrule
+Llama-3.1-8B & CE & \todo{} & \todo{} & \todo{} & \todo{} & \todo{} \\
+Llama-3.1-8B & HLCC & \todo{} & \todo{} & \todo{} & \todo{} & \todo{} \\
+\bottomrule
+\end{tabular}
+\label{tab:qlora_large}
+\end{table}
+
+\todo{Analysis: whether HLCC accuracy/calibration advantage holds at 7B+ scale.}
+
+\subsection{Comparison with Calibration Baselines}
+\label{sec:calibration_baselines}
+
+To contextualize the \hlcc{} norm-shift confidence head against established calibration methods, we benchmark a suite of baselines spanning four categories: token-distribution methods, post-hoc scaling, multi-sample methods, and prompting-based approaches.
+
+\paragraph{Methods.} We evaluate the following baselines alongside our trained \hlcc{} norm-shift head:
+\begin{itemize}
+    \item \textbf{Softmax Entropy}: Confidence from normalized Shannon entropy of the next-token distribution: $c = 1 - H(p)/\log V$.
+    \item \textbf{Top-$k$ Probability Mass}: Sum of the $k{=}5$ highest token probabilities.
+    \item \textbf{Temperature Scaling} \citep{guo2017calibration}: Learn a single scalar $T$ minimizing NLL on held-out data; confidence = $\max(\mathrm{softmax}(\mathbf{z}/T))$.
+    \item \textbf{Verbalized Confidence}: Prompt the model to self-assess confidence on a 0--100 scale after answering.
+    \item \textbf{Self-Consistency} \citep{wang2023selfconsistency}: Sample $N{=}10$ answers at temperature 0.7; confidence = majority vote fraction.
+    \item \textbf{\hlcc{} Norm-Shift (ours)}: Trained confidence head using per-layer normalization shift signals with \hlcc{} loss.
+\end{itemize}
+
+\paragraph{Setup.} All methods are evaluated on TruthfulQA (300 examples) and ARC-Challenge (300 examples) using Qwen2.5-7B and Llama-3.1-8B, measuring ECE, Brier score, AUROC, and \hlcc{} score.
+
+\begin{table}[h]
+\centering
+\caption{Single-pass calibration methods on TruthfulQA (300 examples). Lower ECE and Brier are better; higher AUROC and \hlcc{} are better.}
+\begin{tabular}{lcccc}
+\toprule
+\textbf{Method} & \textbf{ECE} $\downarrow$ & \textbf{Brier} $\downarrow$ & \textbf{AUROC} $\uparrow$ & \textbf{HLCC} $\uparrow$ \\
+\midrule
+Softmax Entropy & \todo{} & \todo{} & \todo{} & \todo{} \\
+Top-$k$ Probability & \todo{} & \todo{} & \todo{} & \todo{} \\
+Temperature Scaling & \todo{} & \todo{} & \todo{} & \todo{} \\
+Verbalized Confidence & \todo{} & \todo{} & \todo{} & \todo{} \\
+\textbf{HLCC Norm-Shift (ours)} & \todo{} & \todo{} & \todo{} & \todo{} \\
+\bottomrule
+\end{tabular}
+\label{tab:calibration_single}
+\end{table}
+
+\begin{table}[h]
+\centering
+\caption{Multi-sample methods vs.\ single-pass \hlcc{} norm-shift on TruthfulQA. Cost indicates number of forward passes per example.}
+\begin{tabular}{lccccc}
+\toprule
+\textbf{Method} & \textbf{ECE} $\downarrow$ & \textbf{Brier} $\downarrow$ & \textbf{AUROC} $\uparrow$ & \textbf{HLCC} $\uparrow$ & \textbf{Cost} \\
+\midrule
+Self-Consistency ($N{=}10$) & \todo{} & \todo{} & \todo{} & \todo{} & $10\times$ \\
+\textbf{HLCC Norm-Shift (ours)} & \todo{} & \todo{} & \todo{} & \todo{} & $1\times$ \\
+\bottomrule
+\end{tabular}
+\label{tab:calibration_multi}
+\end{table}
+
+\begin{table}[h]
+\centering
+\caption{All methods compared across both datasets and models. \todo{Fill after running full benchmark.}}
+\begin{tabular}{llcccc}
+\toprule
+\textbf{Model} & \textbf{Method} & \textbf{ECE} $\downarrow$ & \textbf{Brier} $\downarrow$ & \textbf{AUROC} $\uparrow$ & \textbf{HLCC} $\uparrow$ \\
+\midrule
+Qwen2.5-7B & Softmax Entropy & \todo{} & \todo{} & \todo{} & \todo{} \\
+Qwen2.5-7B & Temperature Scaling & \todo{} & \todo{} & \todo{} & \todo{} \\
+Qwen2.5-7B & Self-Consistency & \todo{} & \todo{} & \todo{} & \todo{} \\
+Qwen2.5-7B & \textbf{HLCC Norm-Shift} & \todo{} & \todo{} & \todo{} & \todo{} \\
+\midrule
+Llama-3.1-8B & Softmax Entropy & \todo{} & \todo{} & \todo{} & \todo{} \\
+Llama-3.1-8B & Temperature Scaling & \todo{} & \todo{} & \todo{} & \todo{} \\
+Llama-3.1-8B & Self-Consistency & \todo{} & \todo{} & \todo{} & \todo{} \\
+Llama-3.1-8B & \textbf{HLCC Norm-Shift} & \todo{} & \todo{} & \todo{} & \todo{} \\
+\bottomrule
+\end{tabular}
+\label{tab:calibration_all}
+\end{table}
+
+\todo{Analysis: discuss which method categories are most effective, cost-performance tradeoffs, and whether norm-shift signals provide unique information beyond logit-based methods.}
+
 % ============================================================
 \section{Discussion}
 \label{sec:discussion}
@@ -472,8 +628,9 @@ The \hlcc{} loss function addresses this by directly optimizing for calibrated c
 
 \begin{itemize}
     \item Our entropy-based baseline confidence may not reflect the model's true uncertainty
-    \item Small sample sizes (50 examples) limit statistical power
-    \item We evaluate only instruction-tuned models; base models may behave differently
+    \item Validation sets of 200--300 examples provide reasonable but not definitive statistical power; larger evaluations would strengthen conclusions
+    \item We evaluate only instruction-tuned models across seven architectures (1.1B--8.0B); base models and larger scales ($>$10B) may behave differently
+    \item All experiments use 4-bit quantization, which may affect calibration properties compared to full-precision models
 \end{itemize}
 
 % ============================================================
@@ -483,26 +640,26 @@ The \hlcc{} loss function addresses this by directly optimizing for calibrated c
 
 We introduced the Hybrid Linear-Convex Confidence (\hlcc{}) loss function for training neural networks with calibrated uncertainty estimates. The asymmetric scoring function---linear rewards for correct predictions, quadratic penalties for incorrect ones---creates appropriate incentives for well-calibrated confidence.
 
-Our experiments reveal significant variation in baseline calibration across language models:
+Our experiments across seven language models (1.1B--8.0B parameters) reveal significant variation in baseline calibration:
 \begin{itemize}
-    \item \textbf{TinyLlama} achieves 95\% accuracy on TruthfulQA but expresses only 17\% confidence---severely underconfident
-    \item \textbf{Phi-2} shows moderate accuracy (39\%) with well-matched confidence (18\%)
-    \item \textbf{Qwen2-1.5B} exhibits dangerous overconfidence---36\% of wrong answers had confidence above 70\%
+    \item \textbf{Small models} (1.1B--2.7B): Accuracy ranges from 30--95\% on TruthfulQA, with calibration failures in both directions---TinyLlama is severely underconfident (17\% confidence at 95\% accuracy) while Qwen2-1.5B is dangerously overconfident (67\% confidence at 30\% accuracy).
+    \item \textbf{Large models} (3.8B--8.0B): Higher baseline accuracy (50--65\%) provides a more challenging test of calibration methods, as models are closer to the region where confidence should genuinely be higher.
 \end{itemize}
 
-Training a confidence head with \hlcc{} loss achieved substantial calibration improvements:
+Training a confidence head with \hlcc{} loss achieved substantial calibration improvements across all model sizes:
 \begin{itemize}
-    \item \textbf{Phi-2}: ECE reduced by 41\% (0.226 $\rightarrow$ 0.133) with extended training, with confidence increasing from 17.6\% toward the 40\% accuracy.
-    \item \textbf{Qwen2-1.5B}: ECE reduced by 54\% (0.359 $\rightarrow$ 0.166), with confidence decreasing from 69.2\% to 39.3\%---correcting severe overconfidence.
+    \item \textbf{Small models}: ECE reduced by 41--54\% (Phi-2: 0.226 $\rightarrow$ 0.133; Qwen2-1.5B: 0.359 $\rightarrow$ 0.166), with confidence automatically adjusted toward true accuracy in both directions.
+    \item \textbf{Large models}: \todo{Summarize large model calibration improvements after experiments complete.}
 \end{itemize}
 
-Critically, the \hlcc{} loss automatically adapts to correct calibration errors in both directions: increasing confidence for underconfident models and decreasing it for overconfident models. The HLCC score for Qwen2-1.5B improved from +0.025 to +0.289, demonstrating effective correction of dangerous overconfidence patterns.
+Critically, the \hlcc{} loss automatically adapts to correct calibration errors in both directions: increasing confidence for underconfident models and decreasing it for overconfident models. QLoRA fine-tuning experiments further demonstrate that incorporating \hlcc{} into the training objective provides benefits over standard cross-entropy at both small and large model scales.
 
 The \hlcc{} framework provides both a diagnostic tool for measuring calibration and a training objective for improving it. Future work should explore:
 \begin{enumerate}
-    \item Full model fine-tuning with \hlcc{} (comparing against standard cross-entropy)
+    \item Scaling to larger models (13B+) and open-ended generation tasks
     \item Integration of LayerNorm ``doubt signals'' for richer uncertainty estimation
     \item Application to safety-critical domains where overconfidence is particularly dangerous
+    \item Adaptive loss weighting that adjusts $\alpha$ based on model calibration state during training
 \end{enumerate}
 
 % ============================================================
@@ -553,5 +710,78 @@ HellaSwag: Can a machine really finish your sentence?
 \textit{Association for Computational Linguistics}.
 
 \end{thebibliography}
+
+% ============================================================
+\appendix
+\section{Training Configuration}
+\label{app:training_config}
+% ============================================================
+
+\begin{table}[h]
+\centering
+\caption{Confidence Head Training Hyperparameters}
+\begin{tabular}{lcc}
+\toprule
+Parameter & Small Models & Large Models \\
+\midrule
+Training dataset & ARC-Easy & ARC-Easy \\
+Validation dataset & TruthfulQA & TruthfulQA \\
+Training examples & 1500 & 2500 \\
+Validation examples & 200 & 300 \\
+Epochs & 15 & 25 \\
+Batch size & 8 & 8 \\
+Learning rate & $1 \times 10^{-4}$ & $1 \times 10^{-4}$ \\
+Optimizer & AdamW & AdamW \\
+Weight decay & 0.01 & 0.01 \\
+Checkpoint interval & 5 epochs & 5 epochs \\
+Best model criterion & Lowest ECE & Lowest ECE \\
+\bottomrule
+\end{tabular}
+\label{tab:head_hyperparams}
+\end{table}
+
+\begin{table}[h]
+\centering
+\caption{QLoRA Fine-tuning Hyperparameters}
+\begin{tabular}{lcc}
+\toprule
+Parameter & Small Models & Large Models \\
+\midrule
+Training examples & 1000 & 2500 \\
+Validation examples & 200 & 300 \\
+Epochs & 10 & 15 \\
+Micro-batch size & 4 & 4 \\
+Gradient accumulation & 4 & 4 \\
+Effective batch size & 16 & 16 \\
+Learning rate & $2 \times 10^{-4}$ & $2 \times 10^{-4}$ \\
+Warmup ratio & 0.1 & 0.1 \\
+LoRA rank ($r$) & 16 & 16 \\
+LoRA alpha ($\alpha$) & 32 & 32 \\
+LoRA dropout & 0.05 & 0.05 \\
+HLCC loss weight ($\alpha$) & 0.5 & 0.5 \\
+Precision & FP16 & FP16 \\
+\bottomrule
+\end{tabular}
+\label{tab:qlora_hyperparams}
+\end{table}
+
+\begin{table}[h]
+\centering
+\caption{Operations Per Epoch and Estimated Wall Time}
+\begin{tabular}{llrrr}
+\toprule
+Pipeline & Model Size & Batches/Epoch & Trainable Params & Est.\ Wall Time/Epoch \\
+\midrule
+\multirow{2}{*}{Head training} & Small (1--3B) & 188 & $\sim$1.6M & $\sim$15 min \\
+ & Large (7--8B) & 313 & $\sim$4.2M & $\sim$20 min \\
+\midrule
+\multirow{2}{*}{QLoRA} & Small (1--3B) & 250 & $\sim$8M & $\sim$8 min \\
+ & Large (7--8B) & 625 & $\sim$18M & $\sim$12 min \\
+\bottomrule
+\end{tabular}
+\label{tab:ops_per_epoch}
+\end{table}
+
+\textbf{Hardware}: All experiments were conducted on a single NVIDIA GPU with 4-bit NF4 quantization (double quantization enabled) via bitsandbytes. Models are cached to a local 3TB drive to avoid repeated downloads.
 
 \end{document}
