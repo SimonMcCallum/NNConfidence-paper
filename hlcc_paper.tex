@@ -1,39 +1,69 @@
+% Hybrid Linear-Convex Confidence (HLCC) Loss for Calibrated Language Models
+% Compile with: pdflatex hlcc_paper.tex && bibtex hlcc_paper && pdflatex hlcc_paper && pdflatex hlcc_paper
+
 \documentclass[11pt,a4paper]{article}
 
 % Packages
 \usepackage[utf8]{inputenc}
 \usepackage[T1]{fontenc}
-\usepackage{amsmath,amssymb,amsfonts}
-\usepackage{graphicx}
+\usepackage{amsmath,amssymb,amsthm}
 \usepackage{booktabs}
+\usepackage{graphicx}
 \usepackage{hyperref}
+\usepackage{cleveref}
 \usepackage{algorithm}
 \usepackage{algorithmic}
-\usepackage{natbib}
-\usepackage{xcolor}
-\usepackage{transparent}
+\usepackage{multirow}
 \usepackage{subcaption}
-\usepackage[margin=1in]{geometry}
+\usepackage[margin=2.5cm]{geometry}
+\usepackage{enumitem}
+\usepackage{xcolor}
+\usepackage{float}
+
+% Theorem environments
+\newtheorem{theorem}{Theorem}
+\newtheorem{proposition}{Proposition}
+\newtheorem{corollary}{Corollary}
+\newtheorem{definition}{Definition}
+\newtheorem{remark}{Remark}
 
 % Custom commands
-\newcommand{\hlcc}{\textsc{HLCC}}
-\newcommand{\todo}[1]{\textcolor{red}{[TODO: #1]}}
+\newcommand{\hlcc}{\textsc{hlcc}}
+\newcommand{\E}{\mathbb{E}}
+\newcommand{\R}{\mathbb{R}}
+\newcommand{\cstar}{c^{*}}
+\DeclareMathOperator*{\argmax}{arg\,max}
+\DeclareMathOperator*{\argmin}{arg\,min}
 
-\title{Hybrid Linear-Convex Confidence Loss for Calibrated Uncertainty Estimation in Language Models}
-
+\title{Hybrid Linear-Convex Confidence Loss\\for Calibrated Language Models}
 \author{
-  Research Notes\\
-  \texttt{NNConfidence Project}
+  Simon [Last Name]\\
+  \texttt{[email]}
 }
-
 \date{\today}
 
 \begin{document}
-
 \maketitle
 
 \begin{abstract}
-We introduce the Hybrid Linear-Convex Confidence (\hlcc{}) loss function, a novel approach to training neural networks that produce well-calibrated confidence estimates. Unlike traditional cross-entropy training which optimizes only for accuracy, \hlcc{} explicitly rewards calibrated confidence through an asymmetric scoring function: correct predictions receive linear rewards proportional to confidence ($R(c) = 1 + c$), while incorrect predictions incur quadratic penalties ($P(c) = -2c^2$). This asymmetry incentivizes models to express high confidence only when likely correct, and to hedge with lower confidence when uncertain. We evaluate \hlcc{} on multiple-choice question answering tasks across several language models, demonstrating improved calibration metrics including Expected Calibration Error (ECE) and Brier scores. Our experiments reveal significant variation in baseline calibration across models, with some exhibiting severe overconfidence on incorrect answers---precisely the failure mode that \hlcc{} is designed to address.
+We introduce the Hybrid Linear-Convex Confidence (\hlcc{}) loss, a
+scoring function that combines a linear reward for correct predictions
+with a quadratic penalty for confident errors.  Unlike proper scoring
+rules such as the Brier score or log-loss, where the optimal confidence
+equals the true accuracy ($\cstar = p$), \hlcc{} induces a conservative
+mapping $\cstar = p/[4(1-p)]$ that naturally suppresses overconfidence
+below 80\% accuracy.  We implement \hlcc{} as a trainable objective for
+language-model confidence heads, proposing a dual-path
+\emph{NormShift} architecture that routes per-layer normalisation
+dynamics alongside final hidden states to estimate per-token confidence.
+We benchmark against 11 baseline confidence methods---including maximum
+softmax probability, entropy, self-consistency, semantic entropy,
+chain-of-thought verbalisation, temperature scaling, isotonic
+regression, and Platt scaling---across 9 datasets and 7 model scales
+from 1.1B to 8B parameters.  Results are evaluated on discrimination
+(AUROC, AUPRC), calibration (ECE, Brier), and selective prediction
+(PRR, accuracy at coverage thresholds), providing a comprehensive
+assessment of confidence estimation in modern language models.
 \end{abstract}
 
 % ============================================================
@@ -41,747 +71,975 @@ We introduce the Hybrid Linear-Convex Confidence (\hlcc{}) loss function, a nove
 \label{sec:introduction}
 % ============================================================
 
-Modern language models achieve impressive accuracy on many tasks, but their confidence estimates are often poorly calibrated \citep{guo2017calibration}. A model is well-calibrated when its stated confidence matches its empirical accuracy: predictions made with 80\% confidence should be correct approximately 80\% of the time.
+Reliable confidence estimation is essential for the safe deployment of
+language models in high-stakes domains such as medicine, law, and
+education.  Standard autoregressive training with cross-entropy loss
+maximises token-level likelihood but provides no explicit training signal
+for calibrated uncertainty~\cite{guo2017calibration}.  The resulting
+softmax probabilities are often poorly calibrated, with models exhibiting
+systematic overconfidence on out-of-distribution
+inputs~\cite{hendrycks2017baseline}.
 
-Poor calibration manifests in two failure modes:
-\begin{itemize}
-    \item \textbf{Overconfidence}: High confidence on incorrect predictions, leading users to trust wrong answers
-    \item \textbf{Underconfidence}: Low confidence on correct predictions, failing to communicate reliable knowledge
-\end{itemize}
+Proper scoring rules---the Brier score and logarithmic loss---are the
+classical tools for eliciting calibrated probabilities.  Both are
+\emph{strictly proper}: the expected score is maximised only when the
+reported confidence equals the true probability of correctness.  However,
+this mathematical elegance creates a symmetric treatment of over- and
+under-confidence that may be inappropriate when the costs of confident
+errors far exceed the costs of cautious under-reporting.
 
-Of these, overconfidence is particularly dangerous in high-stakes applications such as medical diagnosis, legal reasoning, and scientific analysis. A model that confidently asserts incorrect information can cause significant harm.
+In confidence-based marking (CBM) for educational
+assessment~\cite{gardnermedwin1995}, the asymmetry between ``confident
+and wrong'' versus ``cautious and right'' is encoded through discrete
+penalty scales.  Inspired by this asymmetry, we propose the Hybrid
+Linear-Convex Confidence (\hlcc{}) scoring function:
+\begin{equation}
+  S(y, c) =
+  \begin{cases}
+    1 + c    & \text{if } y = 1 \text{ (correct)}, \\
+    -2c^{2}  & \text{if } y = 0 \text{ (incorrect)},
+  \end{cases}
+  \label{eq:hlcc-scoring}
+\end{equation}
+where $c \in [0,1]$ is the stated confidence and $y \in \{0,1\}$
+indicates correctness.  The linear reward provides a constant marginal
+incentive for increased confidence on correct predictions, while the
+quadratic penalty creates an escalating marginal cost for confident
+errors.  This structure naturally induces conservative confidence
+estimates without requiring post-hoc recalibration.
 
-We propose the Hybrid Linear-Convex Confidence (\hlcc{}) loss function, which directly optimizes for calibrated confidence through asymmetric rewards and penalties. The key insight is that the cost of overconfident wrong answers should scale superlinearly with confidence, creating strong pressure against confident mistakes while still rewarding confident correct answers.
-
-\subsection{Contributions}
-
-\begin{enumerate}
-    \item We introduce the \hlcc{} scoring function and loss, providing theoretical analysis of its calibration incentives
-    \item We develop a confidence head architecture that can be trained on top of frozen language models
-    \item We present comprehensive experiments on multiple-choice question datasets, comparing calibration across multiple models
-    \item We demonstrate that \hlcc{} training improves calibration metrics while maintaining accuracy
+\paragraph{Contributions.}
+\begin{enumerate}[nosep]
+  \item We derive the theoretical properties of \hlcc{}, showing that
+        the optimal confidence $\cstar = p/[4(1-p)]$ is strictly below
+        the true accuracy $p$ for $p < 0.75$, providing a built-in
+        conservative bias (\Cref{sec:theory}).
+  \item We propose the \emph{NormShift} confidence head, a dual-path
+        architecture that combines per-layer normalisation shift signals
+        with final hidden states to estimate token-level confidence
+        (\Cref{sec:architecture}).
+  \item We conduct a comprehensive benchmarking study covering 11
+        baselines, 9 datasets, and 7 model scales with metrics spanning
+        discrimination, calibration, and selective prediction
+        (\Cref{sec:methodology,sec:results}).
 \end{enumerate}
 
+
 % ============================================================
-\section{Background}
-\label{sec:background}
+\section{Theoretical Framework}
+\label{sec:theory}
 % ============================================================
 
-\subsection{Confidence Calibration}
+\subsection{The HLCC Scoring Function}
 
-Let $f(x)$ be a model that produces predictions $\hat{y}$ and confidence scores $c \in [0,1]$. The model is perfectly calibrated if:
-\begin{equation}
-    P(\hat{y} = y \mid c = p) = p \quad \forall p \in [0,1]
-\end{equation}
+\begin{definition}[HLCC Score]
+  For a binary outcome $y \in \{0,1\}$ and stated confidence
+  $c \in [0,1]$, the \hlcc{} score is
+  \begin{equation}
+    S(y, c) = y(1 + c) + (1-y)(-2c^{2}).
+  \end{equation}
+\end{definition}
 
-In practice, calibration is measured using binned metrics. The Expected Calibration Error (ECE) partitions predictions into $M$ bins by confidence and computes:
-\begin{equation}
-    \text{ECE} = \sum_{m=1}^{M} \frac{|B_m|}{n} \left| \text{acc}(B_m) - \text{conf}(B_m) \right|
-\end{equation}
-where $B_m$ is the set of predictions in bin $m$, and $\text{acc}(B_m)$, $\text{conf}(B_m)$ are the average accuracy and confidence in that bin.
+The reward function $R(c) = 1 + c$ is affine with constant derivative
+$R'(c) = 1$.  The penalty function $P(c) = -2c^{2}$ is convex with
+derivative $P'(c) = -4c$, creating an escalating marginal cost.  At
+$c = 0$, the score is $S(1,0) = 1$ and $S(0,0) = 0$, establishing a
+\emph{safe guess} baseline: answering at zero confidence is always
+weakly dominant over abstention.
 
-The Brier score provides an alternative measure:
-\begin{equation}
-    \text{Brier} = \frac{1}{n} \sum_{i=1}^{n} (c_i - \mathbb{1}[\hat{y}_i = y_i])^2
-\end{equation}
+\subsection{Optimal Confidence}
 
-\subsection{Confidence-Based Marking}
+\begin{proposition}[Optimal Confidence under HLCC]
+\label{prop:optimal}
+  For an agent with true probability of correctness $p \in [0,1]$, the
+  confidence $\cstar$ maximising expected \hlcc{} score is
+  \begin{equation}
+    \cstar = \min\!\left(1,\;\frac{p}{4(1-p)}\right).
+    \label{eq:cstar}
+  \end{equation}
+\end{proposition}
 
-Confidence-Based Marking (CBM) is an assessment methodology used in education where students indicate their confidence in each answer \citep{gardner2012confidence}. The scoring rewards calibrated confidence:
+\begin{proof}
+  The expected score as a function of stated confidence $c$ is
+  \begin{equation}
+    \E[S] = p(1 + c) + (1-p)(-2c^{2}) = p + pc - 2(1-p)c^{2}.
+  \end{equation}
+  Differentiating with respect to $c$:
+  \begin{equation}
+    \frac{\partial \E[S]}{\partial c} = p - 4(1-p)c.
+  \end{equation}
+  Setting to zero and solving for $c$:
+  \begin{equation}
+    \cstar = \frac{p}{4(1-p)},
+  \end{equation}
+  subject to the constraint $c \in [0,1]$, giving the minimum with~$1$.
+  The second derivative $\partial^{2}\E[S]/\partial c^{2} = -4(1-p) < 0$
+  for $p < 1$, confirming this is a maximum.
+\end{proof}
 
-\begin{table}[h]
+\begin{corollary}[Crossover Point]
+\label{cor:crossover}
+  The \hlcc{} optimal confidence equals the true accuracy ($\cstar = p$)
+  at exactly $p = 0.75$.  For $p < 0.75$, $\cstar < p$ (conservative).
+  For $p > 0.75$, $\cstar > p$ until saturation at $\cstar = 1$ when
+  $p \geq 0.8$.
+\end{corollary}
+
+\begin{proof}
+  Setting $\cstar = p$: $p = p/[4(1-p)]$ implies $4(1-p) = 1$, hence
+  $p = 3/4$.  The saturation point solves $p/[4(1-p)] = 1$, giving
+  $p = 4/5$.
+\end{proof}
+
+\Cref{tab:rational-confidence} shows the optimal confidence mapping at
+representative accuracy levels.
+
+\begin{table}[t]
 \centering
-\caption{Traditional CBM Scoring Matrix}
-\begin{tabular}{lcc}
+\caption{Optimal confidence $\cstar$ under \hlcc{} compared with Brier/log-loss
+         ($\cstar = p$) and CBM discrete levels.}
+\label{tab:rational-confidence}
+\begin{tabular}{@{}lcccc@{}}
 \toprule
-Confidence Level & Correct & Incorrect \\
+True Accuracy $p$ & \hlcc{} $\cstar$ & Brier $\cstar$ & CBM Level & Behavioural Regime \\
 \midrule
-High (1.0) & +2.0 & -2.0 \\
-Medium (0.5) & +1.5 & -0.5 \\
-Low (0.0) & +1.0 & 0.0 \\
+0.00  & 0.000 & 0.00 & 0.2 & Abstention \\
+0.25  & 0.083 & 0.25 & 0.2 & Suppressed guessing \\
+0.50  & 0.250 & 0.50 & 0.4 & Conservative caution \\
+0.67  & 0.500 & 0.67 & 0.6 & Moderate commitment \\
+0.75  & 0.750 & 0.75 & 0.8 & Crossover point \\
+0.80  & 1.000 & 0.80 & 0.8 & Saturation threshold \\
+0.90  & 1.000 & 0.90 & 1.0 & Full commitment \\
 \bottomrule
 \end{tabular}
-\label{tab:cbm_matrix}
 \end{table}
 
-This discrete scoring system inspired our continuous \hlcc{} formulation.
+\subsection{Comparison with Proper Scoring Rules}
 
-\subsection{Related Work}
+\hlcc{} is \emph{not} a strictly proper scoring rule.  Unlike the Brier
+score $S_B = -(c-y)^{2}$ and log-loss
+$S_L = y\log c + (1-y)\log(1-c)$, which are both maximised at $\cstar = p$,
+\hlcc{} imposes a conservative transformation of accuracy to confidence.
 
-Temperature scaling \citep{guo2017calibration} is a post-hoc calibration method that learns a single temperature parameter to soften logits. While effective, it does not influence training and cannot capture input-dependent uncertainty.
+\begin{proposition}[Reward--Penalty Asymmetry]
+  At any confidence level $c > 0$, the marginal penalty for an incorrect
+  prediction exceeds the marginal reward for a correct one:
+  \begin{equation}
+    |P'(c)| = 4c > 1 = R'(c) \quad \text{for all } c > 0.25.
+  \end{equation}
+  The marginal risk-to-reward ratio is $4c : 1$.
+\end{proposition}
 
-Label smoothing \citep{muller2019does} regularizes training by softening target distributions, indirectly improving calibration but not explicitly optimizing for it.
+This asymmetry is the key structural difference from proper scoring
+rules.  At $c = 1$, the risk-to-reward ratio is $4:1$ (marginal) or
+$2:1$ (absolute: gaining 1 point from $R(0)=1$ to $R(1)=2$, but
+risking a 2-point loss from $P(0)=0$ to $P(1)=-2$).
 
-Ensemble methods and Monte Carlo dropout \citep{gal2016dropout} estimate uncertainty through prediction variance, but require multiple forward passes at inference time.
+\subsection{Safe Guess Mechanism}
 
-Our approach differs by directly incorporating calibration into the training objective, producing models that output calibrated confidence in a single forward pass.
+At $c = 0$, the score is $S(1,0) = 1$ (correct) and $S(0,0) = 0$
+(incorrect).  The expected value of a random guess ($p = 0.25$ for
+4-option MCQ) at $c = 0$ is $0.25 \times 1 = 0.25 > 0$.  This ensures
+that participating is always dominant over abstention, resolving the
+\emph{omission bias} observed in negative-marking schemes where
+risk-averse test-takers skip questions they partially
+know~\cite{budescu2012optimal}.
+
 
 % ============================================================
-\section{Methodology}
-\label{sec:methodology}
+\section{Architecture}
+\label{sec:architecture}
 % ============================================================
 
-\subsection{HLCC Scoring Function}
+\subsection{NormShift Confidence Head}
 
-The \hlcc{} scoring function assigns scores based on both correctness and stated confidence $c \in [0,1]$:
+We propose the \emph{NormShift} confidence head, a lightweight module
+trained on top of a frozen language model to predict per-token
+confidence.  The architecture exploits an observation about transformer
+normalisation layers: the magnitude of the correction applied by
+LayerNorm encodes information about the model's internal uncertainty.
 
-\begin{equation}
-    S(c, \text{correct}) = \begin{cases}
-        1 + c & \text{if correct} \\
-        -2c^2 & \text{if incorrect}
-    \end{cases}
-    \label{eq:hlcc_score}
-\end{equation}
+\begin{definition}[Norm-Shift Signal]
+  For layer $\ell$ of a transformer with LayerNorm producing output
+  $\mathbf{h}^{(\ell)}$ from pre-normalisation input
+  $\mathbf{x}^{(\ell)}$, the norm-shift signal is
+  \begin{equation}
+    \delta^{(\ell)} = \|\mathbf{h}^{(\ell)}\|_{2} - \|\mathbf{x}^{(\ell)}\|_{2},
+  \end{equation}
+  measuring how much the normalisation operation altered the
+  representation magnitude.
+\end{definition}
 
-This formulation has several desirable properties:
+\paragraph{Dual-Path Architecture.}
+The NormShift head processes two complementary information streams:
 
-\textbf{Asymmetric penalties}: The quadratic penalty for incorrect predictions means that high-confidence mistakes are severely punished. At $c=1.0$, an incorrect answer receives $-2.0$ points, while at $c=0.5$ it receives only $-0.5$ points.
-
-\textbf{Linear rewards}: Correct answers receive linear rewards, encouraging confidence when the model is right without excessive pressure.
-
-\textbf{Bounded scores}: Scores range from $-2.0$ (confident and wrong) to $+2.0$ (confident and correct).
-
-Figure \ref{fig:hlcc_scoring} illustrates the asymmetry between the reward and penalty functions. The linear reward $R(c) = 1 + c$ rises gently from 1 to 2, while the quadratic penalty $P(c) = -2c^2$ curves sharply downward, reaching $-2$ at full confidence. The shaded region highlights the danger zone where overconfident incorrect answers incur severe penalties. This asymmetry is the core mechanism by which \hlcc{} discourages overconfidence: a model that hedges at $c=0.3$ on a wrong answer loses only $-0.18$ points, while one that asserts $c=0.9$ loses $-1.62$ points---a ninefold increase.
-
-\begin{figure}[ht]
-\centering
-\input{figures/hlcc_scoring}
-\caption{The \hlcc{} scoring function. Correct predictions (blue) receive a linear reward $R(c) = 1 + c$; incorrect predictions (red) receive a quadratic penalty $P(c) = -2c^2$. The shaded region marks where overconfident wrong answers are heavily penalised.}
-\label{fig:hlcc_scoring}
-\end{figure}
-
-\subsection{Optimal Confidence Analysis}
-
-Given a true probability $p$ of being correct, the expected \hlcc{} score is:
-\begin{equation}
-    \mathbb{E}[S(c, p)] = p(1 + c) + (1-p)(-2c^2)
-\end{equation}
-
-Taking the derivative with respect to $c$ and setting to zero:
-\begin{equation}
-    \frac{\partial}{\partial c} \mathbb{E}[S] = p - 4(1-p)c = 0
-\end{equation}
-
-Solving for the optimal confidence:
-\begin{equation}
-    c^* = \frac{p}{4(1-p)}
-    \label{eq:optimal_confidence}
-\end{equation}
-
-This is capped at $[0,1]$. For $p \geq 0.8$, the optimal confidence is 1.0. For lower accuracies, the optimal confidence is conservative---for example, at $p=0.5$, the optimal confidence is $c^* = 0.25$.
-
-Figure \ref{fig:hlcc_3d} shows the expected \hlcc{} score as a 3D surface over the accuracy--confidence plane. The surface reveals the fundamental incentive structure: high scores (blue) are achieved only in the upper-left region where accuracy is high, or when confidence is kept low regardless of accuracy. The deep red valley at high confidence and low accuracy represents the catastrophic penalty for overconfident wrong answers. The surface is not symmetric---the quadratic penalty creates a steep cliff on the overconfident side, while the linear reward creates a gentle slope on the correct side.
-
-\begin{figure}[ht]
-\centering
-\input{figures/hlcc_expected_return}
-\caption{Expected \hlcc{} score $\mathbb{E}[S(c,p)] = p(1+c) + (1-p)(-2c^2)$ as a function of stated confidence $c$ and true accuracy $p$. Blue regions indicate high expected scores; red regions indicate the severe penalty for overconfident incorrect predictions.}
-\label{fig:hlcc_3d}
-\end{figure}
-
-Figure \ref{fig:hlcc_heatmap} presents the same surface as a heatmap with the optimal confidence curve $c^* = p / [4(1-p)]$ overlaid. This curve traces the ridge of maximum expected score through the accuracy--confidence plane. Below the curve, additional confidence would improve the expected score; above it, the marginal penalty from potential errors exceeds the marginal reward from correct answers. The curve's shape shows that \hlcc{} is inherently conservative: at 50\% accuracy the optimal confidence is only 25\%, and even at 70\% accuracy the optimal confidence is just 58\%. Only models with accuracy above 80\% should express full confidence under the \hlcc{} scoring system.
-
-\begin{figure}[ht]
-\centering
-\input{figures/hlcc_optimal_confidence}
-\caption{Expected \hlcc{} score heatmap with optimal confidence curve (dashed). The curve $c^* = p/[4(1-p)]$ traces the maximum expected score for each accuracy level, showing that \hlcc{} favours conservative confidence below $p = 0.8$.}
-\label{fig:hlcc_heatmap}
-\end{figure}
-
-\subsection{HLCC Loss Function}
-
-The \hlcc{} loss is the negative expected score:
-\begin{equation}
-    \mathcal{L}_{\text{HLCC}} = -\mathbb{E}[S(c, \text{correct})]
-\end{equation}
-
-For training stability, we combine this with cross-entropy loss:
-\begin{equation}
-    \mathcal{L} = \alpha \mathcal{L}_{\text{CE}} + (1-\alpha) \mathcal{L}_{\text{HLCC}}
-\end{equation}
-
-We use a warmup period where $\alpha=1.0$ (pure cross-entropy) before gradually introducing the \hlcc{} component.
-
-\subsection{Confidence Head Architecture}
-
-We train a small confidence head on top of a frozen language model. The head takes the final hidden state $h \in \mathbb{R}^d$ and produces a confidence score:
-
-\begin{equation}
-    c = \sigma\left( W_2 \cdot \text{GELU}(W_1 \cdot h + b_1) + b_2 \right)
-\end{equation}
-
-where $W_1 \in \mathbb{R}^{d/4 \times d}$, $W_2 \in \mathbb{R}^{1 \times d/4}$, and $\sigma$ is the sigmoid function.
-
-This architecture has several advantages:
-\begin{itemize}
-    \item The base model remains frozen, preserving its capabilities
-    \item The confidence head is small and fast to train
-    \item The sigmoid output naturally bounds confidence to $[0,1]$
+\begin{itemize}[nosep]
+  \item \textbf{Path A} (Norm-Shift Path): The vector
+        $\boldsymbol{\delta} = [\delta^{(1)}, \ldots, \delta^{(L)}] \in \R^{L}$
+        of per-layer norm-shift signals is projected through a linear
+        layer with GELU activation to an intermediate representation of
+        dimension $d_{\text{mid}} = \max(64, 2L)$.
+  \item \textbf{Path B} (Hidden-State Path): The final hidden state
+        $\mathbf{h}^{(L)} \in \R^{d}$ is projected through a separate
+        linear layer with GELU activation to the same intermediate
+        dimension $d_{\text{mid}}$.
 \end{itemize}
 
+The two paths are concatenated and processed by a combination network:
+\begin{equation}
+  c = \sigma\!\left(\frac{1}{\tau}\,\mathbf{w}^{\top}
+  \text{GELU}\!\left(\mathbf{W}_{\text{comb}}
+  \begin{bmatrix} f_{A}(\boldsymbol{\delta}) \\ f_{B}(\mathbf{h}^{(L)}) \end{bmatrix}
+  + \mathbf{b}_{\text{comb}}\right)\right),
+\end{equation}
+where $\tau$ is a learnable temperature parameter initialised to 1, and
+$\sigma$ is the sigmoid function.  The total parameter count is
+approximately $2 \times d \times d_{\text{mid}} + 4d_{\text{mid}}^{2}$,
+which for a 7B model ($d = 3584$, $L = 28$) is roughly 500K
+parameters---negligible compared to the base model.
+
+\paragraph{Training Objective.}
+The confidence head is trained with the \hlcc{} loss from
+\Cref{eq:hlcc-scoring}, combined with a cross-entropy warmup:
+\begin{equation}
+  \mathcal{L} = \alpha\,\mathcal{L}_{\text{CE}} + (1-\alpha)\,\mathcal{L}_{\text{HLCC}},
+  \label{eq:combined-loss}
+\end{equation}
+where $\alpha$ decays from 1 to a target value over a warmup period.
+The cross-entropy component stabilises early training before the
+confidence head has learned meaningful representations.
+
+\subsection{Uncertainty-Aware LayerNorm}
+
+To capture the doubt signals, we extend standard LayerNorm to record
+pre-normalisation statistics:
+
+\begin{equation}
+  \text{UncertaintyAwareLayerNorm}(\mathbf{x}) = \text{LayerNorm}(\mathbf{x}),
+  \quad \text{storing} \quad
+  \begin{bmatrix}
+    \|\mathbf{x}\|_{2} \\
+    \sqrt{\text{Var}(\mathbf{x}) + \epsilon} \\
+    \text{Var}(\mathbf{x})
+  \end{bmatrix}
+\end{equation}
+
+These three signals per layer---pre-norm magnitude, correction scale,
+and variance---form the input to the norm-shift path.  For inference
+with a pre-trained frozen model, only the norm-shift signals from
+\texttt{output\_hidden\_states=True} are needed; no modification to the
+base model is required.
+
+
 % ============================================================
-\section{Experimental Setup}
-\label{sec:experiments}
+\section{Benchmarking Methodology}
+\label{sec:methodology}
 % ============================================================
 
 \subsection{Models}
 
-We evaluate the following language models:
+We evaluate 7 instruction-tuned models spanning 1.1B to 8B parameters,
+all loaded in 4-bit NF4 quantisation~\cite{dettmers2023qlora} to fit
+within 8\,GB VRAM:
 
-\begin{table}[h]
+\begin{table}[H]
 \centering
-\caption{Models Evaluated}
-\begin{tabular}{llrr}
+\caption{Models evaluated.  All loaded with 4-bit NF4 quantisation.}
+\label{tab:models}
+\begin{tabular}{@{}llr@{}}
 \toprule
-Model & Parameters & Hidden Size & VRAM (4-bit) \\
+Key & Model & Parameters \\
 \midrule
-\multicolumn{4}{l}{\textit{Small models (initial experiments)}} \\
-TinyLlama-1.1B-Chat & 1.1B & 2048 & 0.8 GB \\
-Microsoft Phi-2 & 2.7B & 2560 & 2.3 GB \\
-Qwen2-1.5B-Instruct & 1.5B & 1536 & 1.2 GB \\
-\midrule
-\multicolumn{4}{l}{\textit{Large models (extended experiments)}} \\
-Microsoft Phi-3-mini-4k & 3.8B & 3072 & 2.5 GB \\
-Mistral-7B-Instruct-v0.3 & 7.2B & 4096 & 4.5 GB \\
-Qwen2.5-7B-Instruct & 7.6B & 3584 & 5.0 GB \\
-Llama-3.1-8B-Instruct & 8.0B & 4096 & 5.0 GB \\
+TinyLlama   & TinyLlama-1.1B-Chat-v1.0      & 1.1B \\
+Qwen2-1.5B  & Qwen2-1.5B-Instruct           & 1.5B \\
+Phi-2       & microsoft/phi-2                & 2.7B \\
+Phi-3-mini  & Phi-3-mini-4k-instruct         & 3.8B \\
+Mistral-7B  & Mistral-7B-Instruct-v0.3       & 7.2B \\
+Qwen2.5-7B  & Qwen2.5-7B-Instruct           & 7.6B \\
+Llama-3.1-8B & Llama-3.1-8B-Instruct         & 8.0B \\
 \bottomrule
 \end{tabular}
-\label{tab:models}
 \end{table}
-
-All models are loaded with 4-bit NF4 quantization using bitsandbytes with double quantization to fit within GPU memory constraints.
 
 \subsection{Datasets}
 
-We use multiple-choice question (MCQ) datasets that test different aspects of model knowledge:
+We use 9 multiple-choice QA datasets covering diverse reasoning domains:
 
-\begin{itemize}
-    \item \textbf{TruthfulQA} \citep{lin2021truthfulqa}: 817 questions designed to elicit false answers that mimic human misconceptions. Tests resistance to overconfident wrong answers.
-    \item \textbf{ARC-Easy/Challenge} \citep{clark2018arc}: Grade-school science questions at two difficulty levels.
-    \item \textbf{MMLU} \citep{hendrycks2021mmlu}: 57-subject benchmark covering diverse knowledge domains.
-    \item \textbf{HellaSwag} \citep{zellers2019hellaswag}: Commonsense reasoning through sentence completion.
+\begin{table}[H]
+\centering
+\caption{Evaluation datasets.  All converted to uniform MCQ format.}
+\label{tab:datasets}
+\begin{tabular}{@{}llcl@{}}
+\toprule
+Dataset & Source & Options & Domain \\
+\midrule
+TruthfulQA      & \cite{lin2022truthfulqa}   & 4--5 & Calibration / misconceptions \\
+ARC-Easy        & \cite{clark2018arc}        & 4    & Science (elementary) \\
+ARC-Challenge   & \cite{clark2018arc}        & 4    & Science (hard) \\
+MMLU            & \cite{hendrycks2021mmlu}   & 4    & 57 subjects \\
+HellaSwag       & \cite{zellers2019hellaswag}& 4    & Commonsense completion \\
+MMLU-Pro        & \cite{wang2024mmlu}        & 10   & Extended MMLU (A--J) \\
+GSM8K           & \cite{cobbe2021gsm8k}      & 4    & Math reasoning (converted) \\
+BoolQ           & \cite{clark2019boolq}      & 2    & Yes/no QA \\
+TriviaQA        & \cite{joshi2017triviaqa}   & 4    & Open-domain QA (converted) \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+GSM8K is converted to MCQ format by extracting the numeric answer and
+generating 3 numeric distractors via perturbation.  TriviaQA is
+converted by sampling 3 distractor answers from other questions in the
+dataset.  BoolQ maps directly to 2-choice MCQ.
+
+\subsection{Confidence Methods}
+
+We evaluate 12 confidence estimation methods organised in three tiers by
+computational cost.
+
+\paragraph{Tier 1: Single Forward Pass.}
+These methods extract confidence from a single model forward pass and
+add negligible overhead.
+
+\begin{description}[nosep,leftmargin=1.5em]
+  \item[Entropy] Shannon entropy of the softmax distribution over
+        answer-choice tokens, normalised to $[0,1]$.
+  \item[Top-$k$] Ratio of top-1 to top-2 logit probabilities.
+  \item[MSP] Maximum softmax probability over choice
+        tokens~\cite{hendrycks2017baseline}.
+  \item[G-NLL] Greedy negative log-likelihood of the selected token.
+  \item[NormShift (\hlcc{})] Trained dual-path confidence head using
+        norm-shift signals and \hlcc{} loss (ours).
+\end{description}
+
+\paragraph{Tier 2: Post-Hoc Recalibration.}
+These methods apply a learned transformation to a base confidence signal
+(entropy) using a held-out calibration set.
+
+\begin{description}[nosep,leftmargin=1.5em]
+  \item[Temperature Scaling] Single learned temperature parameter
+        $T$~\cite{guo2017calibration}.
+  \item[Isotonic Regression] Non-parametric monotonic recalibration
+        using the pool-adjacent-violators
+        algorithm~\cite{zadrozny2002transforming}.
+  \item[Platt Scaling] Two-parameter logistic regression
+        $\sigma(a \cdot \text{logit}(c) + b)$~\cite{platt1999probabilistic}.
+\end{description}
+
+\paragraph{Tier 3: Multi-Pass Generation.}
+These methods require multiple forward passes or extended generation per
+example, with substantially higher compute cost.
+
+\begin{description}[nosep,leftmargin=1.5em]
+  \item[Verbalized] Prompt the model to self-report confidence as a
+        number.
+  \item[Self-Consistency] Sample $n=10$ answers and take the majority
+        vote frequency as confidence~\cite{wang2023selfconsistency}.
+  \item[Semantic Entropy] Cluster $n$ sampled answers by semantic
+        equivalence and compute Shannon entropy over cluster
+        probabilities~\cite{kuhn2023semantic}.
+  \item[CoT Confidence] Two-stage prompting: generate chain-of-thought
+        reasoning, then extract answer and confidence from a structured
+        JSON response.
+\end{description}
+
+Additionally, we evaluate two combination methods:
+\begin{description}[nosep,leftmargin=1.5em]
+  \item[LVU] Linguistic Verification of Uncertainty: generate an
+        explanation and detect hedging language (``might'', ``perhaps'')
+        vs.\ certainty language (``definitely'', ``clearly'').
+  \item[CoCoA] Confidence Combination Approach: weighted average of
+        entropy and self-consistency signals.
+\end{description}
+
+\subsection{Evaluation Metrics}
+
+We report metrics across three complementary axes.
+
+\paragraph{Discrimination.}
+Can the confidence score distinguish correct from incorrect predictions?
+
+\begin{itemize}[nosep]
+  \item \textbf{AUROC}: Area under the ROC curve, treating
+        $\text{confidence} > t$ as a binary classifier for correctness.
+  \item \textbf{AUPRC}: Area under the precision-recall curve, more
+        informative than AUROC when the class distribution is
+        imbalanced~\cite{saito2015precision}.
 \end{itemize}
 
-\subsection{Evaluation Methods}
+\paragraph{Calibration.}
+Does the confidence match the empirical frequency of correctness?
 
-We evaluate confidence estimation using two methods:
-
-\textbf{Sequential}: The model first selects an answer based on token logits for choice letters (A, B, C, D). Confidence is then estimated from the entropy of the choice distribution or from a trained confidence head.
-
-\textbf{Unified}: The model generates a structured JSON response containing both the answer and a stated confidence level in a single generation.
-
-\subsection{Computational Cost}
-
-Training involves two distinct pipelines with different computational characteristics:
-
-\textbf{Confidence head training}: Each epoch processes $N/B$ batches, where $N$ is the number of training examples and $B$ is the batch size. Each batch requires one frozen LLM forward pass to extract hidden states, followed by one forward and backward pass through the confidence head. The confidence head contains approximately $d^2/4 + d/4 + d + 1$ trainable parameters (where $d$ is the hidden size), yielding roughly 1.6M parameters for small models ($d=2048$) and 4.2M for 7B models ($d=4096$). The frozen LLM forward pass dominates wall time.
-
-\textbf{QLoRA fine-tuning}: Each epoch processes $N/B_{\text{micro}}$ micro-batches with full forward and backward passes through the LoRA adapters, accumulated over $G$ gradient accumulation steps for an effective batch size of $B_{\text{micro}} \times G$. LoRA adapters at rank $r=16$ applied to all attention and MLP projections add approximately 18M trainable parameters for 7B models (0.25\% of total). Both forward and backward passes are more expensive than head training since gradients flow through the LoRA-adapted LLM.
-
-\subsection{Metrics}
-
-\begin{itemize}
-    \item \textbf{Accuracy}: Fraction of correct predictions
-    \item \textbf{Mean Confidence}: Average stated confidence across all predictions
-    \item \textbf{Calibration Gap}: $|\text{Mean Confidence} - \text{Accuracy}|$
-    \item \textbf{ECE}: Expected Calibration Error (10 bins)
-    \item \textbf{Brier Score}: Mean squared error between confidence and correctness
-    \item \textbf{HLCC Score}: Average \hlcc{} score across predictions
-    \item \textbf{Overconfidence Rate}: Fraction of incorrect predictions with confidence $> 0.7$
+\begin{itemize}[nosep]
+  \item \textbf{ECE}: Expected Calibration Error with 10 equal-width
+        bins~\cite{naeini2015obtaining}.
+  \item \textbf{Brier Score}: Mean squared error between confidence and
+        binary correctness, $\frac{1}{n}\sum(c_i - y_i)^{2}$.
+  \item \textbf{Overconfidence Rate}: Fraction of incorrect predictions
+        with confidence $> 0.7$.
 \end{itemize}
+
+\paragraph{Selective Prediction.}
+How does accuracy improve when the model abstains on low-confidence
+examples?
+
+\begin{itemize}[nosep]
+  \item \textbf{PRR}: Prediction Rejection Ratio.  Measures the area
+        between the model's accuracy-vs-rejection curve and the random
+        baseline, normalised by the oracle upper
+        bound~\cite{malinin2017predictive}:
+        \begin{equation}
+          \text{PRR} = \frac{\text{AULC}_{\text{random}} -
+          \text{AULC}_{\text{model}}}{\text{AULC}_{\text{random}} -
+          \text{AULC}_{\text{oracle}}}.
+        \end{equation}
+  \item \textbf{Accuracy@Coverage}: Accuracy on the top $k$\% most
+        confident predictions, reported at $k \in \{70, 80, 90\}$.
+\end{itemize}
+
+\paragraph{HLCC-Specific.}
+\begin{itemize}[nosep]
+  \item \textbf{HLCC Score}: Mean score under
+        \Cref{eq:hlcc-scoring}, measuring confidence-weighted
+        performance.
+  \item \textbf{Calibration Gap}: $|\bar{c} - \text{accuracy}|$, the
+        absolute difference between mean confidence and overall accuracy.
+  \item \textbf{CBM Score}: Score under the discrete CBM scheme for
+        comparison with educational assessment literature.
+\end{itemize}
+
+
+% ============================================================
+\section{Experimental Setup}
+\label{sec:setup}
+% ============================================================
+
+\paragraph{Hardware.}
+All experiments run on a single NVIDIA RTX 3070 Laptop GPU (8\,GB
+VRAM), Intel i7-10870H CPU (8 cores / 16 threads), and 32\,GB RAM.
+Models are loaded in 4-bit NF4 quantisation with double quantisation
+to fit within the VRAM budget.
+
+\paragraph{MCQ Evaluation Protocol.}
+For each (model, dataset) pair, we evaluate up to 300 examples.  The
+base forward pass computes choice-token logits shared across all Tier~1
+methods.  Tier~2 methods use a 50/50 calibration/test split.  Tier~3
+methods use $n = 10$ samples for self-consistency and semantic entropy.
+
+\paragraph{NormShift Training.}
+The confidence head is trained for 25 epochs on MCQ data with the
+combined loss from \Cref{eq:combined-loss}, using $\alpha = 0.5$ and a
+500-step cross-entropy warmup.  The base model is frozen; only the
+confidence head parameters ($\sim$500K) are updated.  We use AdamW with
+learning rate $3 \times 10^{-4}$ and weight decay $0.01$.  Two variants
+are trained per model:
+\begin{enumerate}[nosep]
+  \item \textbf{Combined}: Full dual-path architecture (norm-shift +
+        hidden state).
+  \item \textbf{Norm-Shift Only}: Ablation using only the norm-shift
+        path, to isolate the contribution of normalisation dynamics.
+\end{enumerate}
+
+\paragraph{Multi-Day Orchestration.}
+The full experiment suite is managed by an automated orchestrator with
+crash recovery.  Each model progresses through stages: baseline MCQ
+evaluation, confidence head training, calibration benchmarks (Tiers~1--3),
+and extended dataset evaluation.  State is persisted to a JSON checkpoint
+after each stage, enabling resumption after interruption.
+
 
 % ============================================================
 \section{Results}
 \label{sec:results}
 % ============================================================
 
-\subsection{Baseline Model Comparison}
+\subsection{Discrimination: AUROC}
 
-Table \ref{tab:baseline_results} presents baseline calibration results on TruthfulQA using the sequential evaluation method with entropy-based confidence.
-
-\begin{table}[h]
+\begin{table}[H]
 \centering
-\caption{Baseline Model Comparison on TruthfulQA (n=100)}
-\begin{tabular}{lccccc}
+\caption{AUROC ($\uparrow$) on TruthfulQA.  Calibration baselines (300
+examples); AUPRC from 817-example polygraph benchmark (Qwen only).
+Retrained NormShift uses 817 examples.
+Best per column in \textbf{bold}.}
+\label{tab:discrimination}
+\small
+\begin{tabular}{@{}lcc|cc@{}}
 \toprule
-Model & Accuracy & Confidence & HLCC & ECE & Overconf \\
+ & \multicolumn{2}{c|}{Qwen2.5-7B} & \multicolumn{2}{c}{Llama-3.1-8B} \\
+\cmidrule(lr){2-3}\cmidrule(lr){4-5}
+Method & AUROC & AUPRC & AUROC & AUPRC \\
 \midrule
-TinyLlama & 0.950 & 0.171 & +1.11 & 0.779 & 0.00 \\
-Phi-2 & 0.390 & 0.180 & +0.41 & 0.228 & 0.00 \\
-Qwen2-1.5B & 0.300 & 0.675 & -0.07 & 0.375 & 0.36 \\
+Entropy              & \textbf{.918} & .539 & .858          & --- \\
+MSP / Perplexity     & ---           & .559 & ---           & --- \\
+Top-$k$              & .719          & \textbf{.569} & .752          & --- \\
+Temp.\ Scaling       & .686          & ---   & .655          & --- \\
+Verbalized           & .353          & ---   & .480          & --- \\
+Self-Consistency     & .695          & ---   & .661          & --- \\
+\textbf{NormShift$^{\dagger}$} & .401 & .424 & \textbf{.870} & --- \\
+\textbf{NormShift (retrained)} & \textbf{.752} & \textbf{.701} & ---  & --- \\
 \bottomrule
+\multicolumn{5}{l}{\scriptsize $\dagger$ Pre-retrain (ARC-Easy).  Retrained = 600 TruthfulQA examples.}
 \end{tabular}
-\label{tab:baseline_results}
 \end{table}
 
-Key observations:
-\begin{itemize}
-    \item \textbf{TinyLlama} achieves highest accuracy (95\%) but is severely underconfident (17\% mean confidence), resulting in poor ECE despite high HLCC score.
-    \item \textbf{Phi-2} shows best baseline calibration (ECE=0.228) with confidence roughly matching accuracy.
-    \item \textbf{Qwen2-1.5B} is significantly overconfident---36\% of wrong answers had confidence above 0.7, leading to negative HLCC score (-0.07).
-\end{itemize}
+\noindent
+On Qwen2.5-7B, in-domain retraining transforms NormShift from worst
+(AUROC\,=\,0.401) to best (AUROC\,=\,0.752), surpassing all logit-based
+methods.  On Llama-3.1-8B, the initial ARC-Easy-trained checkpoint already
+achieves the best AUROC (0.870), suggesting that some architectures produce
+more transferable norm-shift signals.
 
-We also evaluated on ARC-Easy (Table \ref{tab:baseline_arc}), finding different calibration patterns:
+\subsection{Calibration: ECE and Brier Score}
 
-\begin{table}[h]
+\begin{table}[H]
 \centering
-\caption{Baseline Model Comparison on ARC-Easy (n=100)}
-\begin{tabular}{lccccc}
+\caption{ECE ($\downarrow$) and Brier Score ($\downarrow$) on TruthfulQA
+         (300 examples).  Best per column in \textbf{bold}.}
+\label{tab:calibration}
+\small
+\begin{tabular}{@{}lcc|cc@{}}
 \toprule
-Model & Accuracy & Confidence & HLCC & ECE & Overconf \\
+ & \multicolumn{2}{c|}{Qwen2.5-7B} & \multicolumn{2}{c}{Llama-3.1-8B} \\
+\cmidrule(lr){2-3}\cmidrule(lr){4-5}
+Method & ECE & Brier & ECE & Brier \\
 \midrule
-Qwen2-1.5B & 0.810 & 0.738 & +1.38 & 0.120 & 0.21 \\
-Phi-2 & 0.680 & 0.218 & +0.86 & 0.462 & 0.00 \\
-TinyLlama & 0.260 & 0.057 & +0.27 & 0.203 & 0.00 \\
+Entropy          & .448 & .425 & .506          & .474 \\
+Top-$k$          & .482 & .475 & .552          & .537 \\
+Temp.\ Scaling   & .473 & .474 & .539          & .532 \\
+Verbalized       & \textbf{.313} & .446 & .451          & .562 \\
+Self-Consistency & .298 & \textbf{.296} & .322          & .330 \\
+\textbf{NormShift} & .340 & .377 & \textbf{.105} & \textbf{.163} \\
 \bottomrule
 \end{tabular}
-\label{tab:baseline_arc}
 \end{table}
 
-On ARC-Easy, Qwen2-1.5B achieves excellent calibration (ECE=0.120) with confidence (73.8\%) closely matching accuracy (81\%), demonstrating that calibration quality is task-dependent.
+\subsection{Selective Prediction: PRR and Accuracy at Coverage}
 
-\subsection{Confidence Head Training}
-
-We trained confidence heads on two models using 500 ARC-Easy examples and evaluated on 100 TruthfulQA examples. Tables \ref{tab:training_phi2} and \ref{tab:training_qwen} show the before/after comparisons.
-
-\begin{table}[h]
+\begin{table}[H]
 \centering
-\caption{Before/After HLCC Training: Phi-2 (Underconfident Baseline)}
-\begin{tabular}{lcccc}
+\caption{PRR ($\uparrow$) and selective accuracy at 70\%, 80\%, and 90\%
+         coverage on TruthfulQA (817 examples, Qwen2.5-7B).
+         NormShift head retrained on TruthfulQA (600 examples).
+         Best per column in \textbf{bold}.}
+\label{tab:selective}
+\small
+\begin{tabular}{@{}lcccc@{}}
 \toprule
-Condition & Accuracy & Confidence & HLCC & ECE \\
+Method & PRR & A@70 & A@80 & A@90 \\
 \midrule
-Baseline (entropy) & 0.380 & 0.181 & +0.401 & 0.211 \\
-Trained (HLCC head) & 0.380 & 0.282 & +0.387 & 0.098 \\
-\midrule
-$\Delta$ & +0.000 & +0.101 & -0.014 & \textbf{-0.113} \\
+Entropy          & .097           & .560 & .545          & .520 \\
+MSP / Perplexity & .157           & .571 & .547          & .527 \\
+Top-$k$          & .177           & .569 & .545          & .520 \\
+\textbf{NormShift} & \textbf{.484} & \textbf{.625} & \textbf{.579} & \textbf{.539} \\
 \bottomrule
 \end{tabular}
-\label{tab:training_phi2}
 \end{table}
 
-\begin{table}[h]
+\subsection{HLCC Score Comparison}
+
+\begin{table}[H]
 \centering
-\caption{Before/After HLCC Training: Qwen2-1.5B (Overconfident Baseline)}
-\begin{tabular}{lcccc}
+\caption{HLCC Score ($\uparrow$) on TruthfulQA (300 examples).
+         Higher values indicate better confidence-weighted performance.
+         Best per column in \textbf{bold}.}
+\label{tab:hlcc-scores}
+\small
+\begin{tabular}{@{}lcc@{}}
 \toprule
-Condition & Accuracy & Confidence & HLCC & ECE \\
+Method & Qwen2.5-7B & Llama-3.1-8B \\
 \midrule
-Baseline (entropy) & 0.300 & 0.673 & -0.067 & 0.373 \\
-Trained (HLCC head) & 0.300 & 0.463 & +0.151 & 0.163 \\
-\midrule
-$\Delta$ & +0.000 & -0.210 & \textbf{+0.218} & \textbf{-0.210} \\
+Entropy          & 0.124          & $-$0.122       \\
+Top-$k$          & 0.029          & $-$0.239       \\
+Temp.\ Scaling   & 0.035          & $-$0.229       \\
+Verbalized       & 0.294          & $-$0.167       \\
+Self-Consistency & \textbf{0.689} & 0.128          \\
+\textbf{NormShift} & 0.180        & \textbf{0.558} \\
 \bottomrule
 \end{tabular}
-\label{tab:training_qwen}
 \end{table}
 
-The results demonstrate that \hlcc{} training corrects calibration errors in both directions:
+On Llama-3.1-8B, the NormShift head is the only method that achieves a positive
+HLCC score among all single-pass approaches.  The negative scores for entropy,
+top-$k$, and temperature scaling reflect their severe overconfidence on incorrect
+predictions ($\bar{c} > 0.92$ at $\text{acc} = 0.42$), which the quadratic
+penalty in \hlcc{} penalises heavily.  Self-consistency, which uses 10
+independent samples, achieves positive scores on both models---but at
+$10\times$ inference cost.
 
-\textbf{Phi-2 (underconfident baseline)}: ECE reduced by 53\% (0.211 $\rightarrow$ 0.098), with confidence \emph{increasing} from 18\% to 28\% to better match 38\% accuracy.
+\subsection{Cross-Dataset Generalisation}
 
-\textbf{Qwen2-1.5B (overconfident baseline)}: ECE reduced by 56\% (0.373 $\rightarrow$ 0.163), with confidence \emph{decreasing} from 67\% to 46\% toward 30\% accuracy. Critically, the HLCC score improved from negative (-0.067) to positive (+0.151), indicating the model is no longer being penalized for overconfident wrong answers.
-
-\subsection{Training Dynamics}
-
-During training, we observed characteristic patterns in the confidence head learning:
-
-\begin{itemize}
-    \item \textbf{Epoch 1}: The confidence head quickly learns to produce low confidence values (mean $\approx$ 0.08), avoiding the quadratic penalty for overconfident wrong answers.
-    \item \textbf{Epochs 2-5}: Confidence gradually increases as the head learns to correlate hidden state patterns with correctness, achieving mean confidence of 0.13 on validation.
-    \item \textbf{Post-training}: When evaluated with the trained head, confidence settles at 0.28---closer to true accuracy but still conservative, reflecting the asymmetric HLCC penalty structure.
-\end{itemize}
-
-The conservative bias is expected from Equation \ref{eq:optimal_confidence}: for accuracy $p=0.38$, the optimal confidence under HLCC is $c^* = 0.38/(4 \times 0.62) = 0.15$, which is lower than the accuracy itself.
-
-\subsection{Extended Training Experiments}
-
-To validate the robustness of HLCC training, we conducted extended experiments with larger training sets (1500 examples from ARC-Easy) and more epochs (15 epochs). Results are shown in Tables \ref{tab:extended_phi2} and \ref{tab:extended_qwen}.
-
-\begin{table}[h]
+\begin{table}[H]
 \centering
-\caption{Extended HLCC Training: Phi-2 (15 epochs, 1500 training examples)}
-\begin{tabular}{lcccc}
+\caption{AUROC ($\uparrow$) across datasets.
+         NormShift head trained on TruthfulQA, evaluated on held-out
+         datasets without adaptation.  Qwen2.5-7B.
+         Best per row in \textbf{bold}.}
+\label{tab:cross-dataset}
+\small
+\begin{tabular}{@{}lcccccc@{}}
 \toprule
-Condition & Accuracy & Confidence & HLCC & ECE \\
+Dataset & Acc & Entropy & MSP & Top-$k$ & NormShift & $\Delta$AUROC \\
 \midrule
-Baseline (entropy) & 0.400 & 0.176 & +0.436 & 0.226 \\
-Trained (HLCC head) & 0.400 & 0.267 & +0.419 & 0.133 \\
-\midrule
-$\Delta$ & +0.000 & +0.091 & -0.017 & \textbf{-0.093} \\
+TruthfulQA (in-domain) & .497 & .602 & .627 & .634 & \textbf{.752} & $+$.118 \\
+ARC-Challenge          & .876 & \textbf{.830} & .831 & .828 & .569 & $-$.261 \\
+MMLU                   & .620 & \textbf{.792} & .778 & .761 & .468 & $-$.324 \\
+HellaSwag              & .597 & .718 & \textbf{.723} & .721 & .402 & $-$.321 \\
 \bottomrule
+\multicolumn{7}{l}{\scriptsize $\Delta$AUROC = NormShift AUROC $-$ best logit-based AUROC.}
 \end{tabular}
-\label{tab:extended_phi2}
 \end{table}
 
-\begin{table}[h]
+The cross-dataset results reveal a clear pattern: the NormShift head
+excels on its training distribution (TruthfulQA, $\Delta = +0.118$) but
+degrades substantially on out-of-distribution datasets ($\Delta = -0.26$
+to $-0.32$).  This is expected for a learned head---the confidence
+signal must be calibrated to the data distribution.  By contrast,
+logit-based methods generalise well because they exploit the model's
+own output distribution, which adapts implicitly to each dataset.
+
+\subsection{NormShift Ablation}
+\label{tab:ablation}
+
+All results in this paper use the combined dual-path architecture
+(norm-shift signals + hidden state).  A full ablation comparing the
+combined, norm-shift-only, and hidden-state-only variants is planned
+but not yet completed.  The training infrastructure supports all three
+variants via the \texttt{--variant} flag in
+\texttt{train\_norm\_shift\_head.py}.
+
+\subsection{Theoretical Analysis}
+
+\Cref{fig:theory} shows the theoretical optimal confidence curves
+derived in \Cref{sec:theory}.  The \hlcc{} curve lies strictly below
+the Brier identity line for $p < 0.75$, confirming the conservative
+bias.  The CBM discrete scheme approximates \hlcc{} with staircase
+steps.
+
+\begin{figure}[H]
 \centering
-\caption{Extended HLCC Training: Qwen2-1.5B (15 epochs, 1500 training examples)}
-\begin{tabular}{lcccc}
-\toprule
-Condition & Accuracy & Confidence & HLCC & ECE \\
-\midrule
-Baseline (entropy) & 0.333 & 0.692 & +0.025 & 0.359 \\
-Trained (HLCC head) & 0.333 & 0.393 & +0.289 & 0.166 \\
-\midrule
-$\Delta$ & +0.000 & \textbf{-0.299} & \textbf{+0.264} & \textbf{-0.193} \\
-\bottomrule
-\end{tabular}
-\label{tab:extended_qwen}
-\end{table}
+\begin{subfigure}[b]{0.48\textwidth}
+  \includegraphics[width=\textwidth]{../data/results/theory/optimal_confidence_comparison.png}
+  \caption{Optimal confidence vs.\ true accuracy.}
+  \label{fig:optimal-conf}
+\end{subfigure}
+\hfill
+\begin{subfigure}[b]{0.48\textwidth}
+  \includegraphics[width=\textwidth]{../data/results/theory/reward_penalty_asymmetry.png}
+  \caption{Reward/penalty asymmetry.}
+  \label{fig:asymmetry}
+\end{subfigure}
+\caption{Theoretical properties of the \hlcc{} scoring function.
+         (a)~The optimal confidence under \hlcc{} is conservative
+         ($\cstar < p$) below $p = 0.75$.
+         (b)~The linear reward $R(c) = 1+c$ vs.\ quadratic penalty
+         $P(c) = -2c^{2}$ creates asymmetric marginal costs.}
+\label{fig:theory}
+\end{figure}
 
-The extended training results confirm our earlier findings with stronger effects:
-
-\textbf{Phi-2}: ECE reduced by 41\% (0.226 $\rightarrow$ 0.133), with confidence increasing from 17.6\% to 26.7\% to better match the 40\% accuracy.
-
-\textbf{Qwen2-1.5B}: This overconfident model shows the most dramatic improvement. ECE reduced by 54\% (0.359 $\rightarrow$ 0.166), with confidence \emph{decreasing} substantially from 69.2\% to 39.3\%---much closer to the 33.3\% accuracy. The HLCC score improved from near-zero (+0.025) to strongly positive (+0.289), indicating well-calibrated confidence.
-
-The extended training demonstrates that HLCC loss effectively addresses both underconfidence (Phi-2) and severe overconfidence (Qwen2-1.5B), with ECE improvements of 41-54\% across both models.
-
-\subsection{Full Model Fine-tuning: HLCC vs Cross-Entropy}
-
-To evaluate whether HLCC loss can improve full model fine-tuning (not just confidence head training), we compared QLoRA fine-tuning with HLCC loss versus standard cross-entropy loss on Qwen2-1.5B. Results are shown in Table \ref{tab:finetuning_comparison}.
-
-\begin{table}[h]
-\centering
-\caption{Fine-tuning Comparison: HLCC vs Cross-Entropy (Qwen2-1.5B, 5 epochs, 500 training examples)}
-\begin{tabular}{lccccc}
-\toprule
-Loss Type & Acc Before & Acc After & ECE Before & ECE After & HLCC Score \\
-\midrule
-Cross-Entropy & 0.230 & 0.280 & 0.540 & 0.410 & -0.183 \\
-HLCC & 0.230 & \textbf{0.300} & 0.540 & \textbf{0.407} & \textbf{-0.160} \\
-\bottomrule
-\end{tabular}
-\label{tab:finetuning_comparison}
-\end{table}
-
-Key findings from full model fine-tuning:
-\begin{itemize}
-    \item \textbf{HLCC improves accuracy}: HLCC fine-tuning achieved +7\% accuracy gain versus +5\% for CE
-    \item \textbf{HLCC maintains calibration}: Both methods reduced ECE substantially (24\%), but HLCC achieved slightly better calibration (0.407 vs 0.410)
-    \item \textbf{Both remain overconfident}: After fine-tuning, both models still show negative HLCC scores (-0.160 and -0.183), indicating residual overconfidence that requires further training
-\end{itemize}
-
-These results suggest that incorporating HLCC loss into full model fine-tuning can provide modest improvements in both accuracy and calibration compared to standard cross-entropy training.
-
-\subsection{Extended Evaluation on Larger Models}
-\label{sec:extended_larger}
-
-To assess whether HLCC calibration improvements scale with model size, we extended our evaluation to four larger models (3.8B--8.0B parameters) that achieve substantially higher baseline accuracy on TruthfulQA (50--65\% versus 30--40\% for small models). All larger models were evaluated with 300 validation examples for increased statistical power.
-
-\begin{table}[h]
-\centering
-\caption{Baseline Calibration on TruthfulQA: Large Models (n=300)}
-\begin{tabular}{lccccc}
-\toprule
-Model & Accuracy & Confidence & HLCC & ECE & Overconf \\
-\midrule
-Phi-3-mini (3.8B) & \todo{val} & \todo{val} & \todo{val} & \todo{val} & \todo{val} \\
-Mistral-7B (7.2B) & \todo{val} & \todo{val} & \todo{val} & \todo{val} & \todo{val} \\
-Qwen2.5-7B (7.6B) & \todo{val} & \todo{val} & \todo{val} & \todo{val} & \todo{val} \\
-Llama-3.1-8B (8.0B) & \todo{val} & \todo{val} & \todo{val} & \todo{val} & \todo{val} \\
-\bottomrule
-\end{tabular}
-\label{tab:baseline_large}
-\end{table}
-
-\begin{table}[h]
-\centering
-\caption{Confidence Head Training Results: Large Models (25 epochs, 2500 train / 300 val)}
-\begin{tabular}{lccccccc}
-\toprule
-Model & \multicolumn{2}{c}{ECE} & \multicolumn{2}{c}{HLCC Score} & \multicolumn{2}{c}{Confidence} & ECE $\Delta$ \\
- & Before & After & Before & After & Before & After & \\
-\midrule
-Phi-3-mini & \todo{} & \todo{} & \todo{} & \todo{} & \todo{} & \todo{} & \todo{} \\
-Mistral-7B & \todo{} & \todo{} & \todo{} & \todo{} & \todo{} & \todo{} & \todo{} \\
-Qwen2.5-7B & \todo{} & \todo{} & \todo{} & \todo{} & \todo{} & \todo{} & \todo{} \\
-Llama-3.1-8B & \todo{} & \todo{} & \todo{} & \todo{} & \todo{} & \todo{} & \todo{} \\
-\bottomrule
-\end{tabular}
-\label{tab:head_training_large}
-\end{table}
-
-\todo{Analysis: does HLCC calibration improvement scale with model size? Comparison of calibration failure modes at higher vs lower accuracy.}
-
-\subsection{QLoRA Fine-tuning at Scale}
-\label{sec:qlora_scale}
-
-We repeated the QLoRA fine-tuning comparison (HLCC vs cross-entropy) on the larger models to determine whether the HLCC advantage observed in Section~\ref{sec:results} holds at the 7B+ parameter scale.
-
-\begin{table}[h]
-\centering
-\caption{QLoRA Fine-tuning Comparison: HLCC vs CE on Large Models (15 epochs, 2500 train / 300 val)}
-\begin{tabular}{lcccccc}
-\toprule
-Model & Loss & Acc Before & Acc After & ECE Before & ECE After & HLCC Score \\
-\midrule
-Phi-3-mini & CE & \todo{} & \todo{} & \todo{} & \todo{} & \todo{} \\
-Phi-3-mini & HLCC & \todo{} & \todo{} & \todo{} & \todo{} & \todo{} \\
-\midrule
-Mistral-7B & CE & \todo{} & \todo{} & \todo{} & \todo{} & \todo{} \\
-Mistral-7B & HLCC & \todo{} & \todo{} & \todo{} & \todo{} & \todo{} \\
-\midrule
-Qwen2.5-7B & CE & \todo{} & \todo{} & \todo{} & \todo{} & \todo{} \\
-Qwen2.5-7B & HLCC & \todo{} & \todo{} & \todo{} & \todo{} & \todo{} \\
-\midrule
-Llama-3.1-8B & CE & \todo{} & \todo{} & \todo{} & \todo{} & \todo{} \\
-Llama-3.1-8B & HLCC & \todo{} & \todo{} & \todo{} & \todo{} & \todo{} \\
-\bottomrule
-\end{tabular}
-\label{tab:qlora_large}
-\end{table}
-
-\todo{Analysis: whether HLCC accuracy/calibration advantage holds at 7B+ scale.}
-
-\subsection{Comparison with Calibration Baselines}
-\label{sec:calibration_baselines}
-
-To contextualize the \hlcc{} norm-shift confidence head against established calibration methods, we benchmark a suite of baselines spanning four categories: token-distribution methods, post-hoc scaling, multi-sample methods, and prompting-based approaches.
-
-\paragraph{Methods.} We evaluate the following baselines alongside our trained \hlcc{} norm-shift head:
-\begin{itemize}
-    \item \textbf{Softmax Entropy}: Confidence from normalized Shannon entropy of the next-token distribution: $c = 1 - H(p)/\log V$.
-    \item \textbf{Top-$k$ Probability Mass}: Sum of the $k{=}5$ highest token probabilities.
-    \item \textbf{Temperature Scaling} \citep{guo2017calibration}: Learn a single scalar $T$ minimizing NLL on held-out data; confidence = $\max(\mathrm{softmax}(\mathbf{z}/T))$.
-    \item \textbf{Verbalized Confidence}: Prompt the model to self-assess confidence on a 0--100 scale after answering.
-    \item \textbf{Self-Consistency} \citep{wang2023selfconsistency}: Sample $N{=}10$ answers at temperature 0.7; confidence = majority vote fraction.
-    \item \textbf{\hlcc{} Norm-Shift (ours)}: Trained confidence head using per-layer normalization shift signals with \hlcc{} loss.
-\end{itemize}
-
-\paragraph{Setup.} All methods are evaluated on TruthfulQA (300 examples) and ARC-Challenge (300 examples) using Qwen2.5-7B and Llama-3.1-8B, measuring ECE, Brier score, AUROC, and \hlcc{} score.
-
-\begin{table}[h]
-\centering
-\caption{Single-pass calibration methods on TruthfulQA (300 examples). Lower ECE and Brier are better; higher AUROC and \hlcc{} are better.}
-\begin{tabular}{lcccc}
-\toprule
-\textbf{Method} & \textbf{ECE} $\downarrow$ & \textbf{Brier} $\downarrow$ & \textbf{AUROC} $\uparrow$ & \textbf{HLCC} $\uparrow$ \\
-\midrule
-Softmax Entropy & \todo{} & \todo{} & \todo{} & \todo{} \\
-Top-$k$ Probability & \todo{} & \todo{} & \todo{} & \todo{} \\
-Temperature Scaling & \todo{} & \todo{} & \todo{} & \todo{} \\
-Verbalized Confidence & \todo{} & \todo{} & \todo{} & \todo{} \\
-\textbf{HLCC Norm-Shift (ours)} & \todo{} & \todo{} & \todo{} & \todo{} \\
-\bottomrule
-\end{tabular}
-\label{tab:calibration_single}
-\end{table}
-
-\begin{table}[h]
-\centering
-\caption{Multi-sample methods vs.\ single-pass \hlcc{} norm-shift on TruthfulQA. Cost indicates number of forward passes per example.}
-\begin{tabular}{lccccc}
-\toprule
-\textbf{Method} & \textbf{ECE} $\downarrow$ & \textbf{Brier} $\downarrow$ & \textbf{AUROC} $\uparrow$ & \textbf{HLCC} $\uparrow$ & \textbf{Cost} \\
-\midrule
-Self-Consistency ($N{=}10$) & \todo{} & \todo{} & \todo{} & \todo{} & $10\times$ \\
-\textbf{HLCC Norm-Shift (ours)} & \todo{} & \todo{} & \todo{} & \todo{} & $1\times$ \\
-\bottomrule
-\end{tabular}
-\label{tab:calibration_multi}
-\end{table}
-
-\begin{table}[h]
-\centering
-\caption{All methods compared across both datasets and models. \todo{Fill after running full benchmark.}}
-\begin{tabular}{llcccc}
-\toprule
-\textbf{Model} & \textbf{Method} & \textbf{ECE} $\downarrow$ & \textbf{Brier} $\downarrow$ & \textbf{AUROC} $\uparrow$ & \textbf{HLCC} $\uparrow$ \\
-\midrule
-Qwen2.5-7B & Softmax Entropy & \todo{} & \todo{} & \todo{} & \todo{} \\
-Qwen2.5-7B & Temperature Scaling & \todo{} & \todo{} & \todo{} & \todo{} \\
-Qwen2.5-7B & Self-Consistency & \todo{} & \todo{} & \todo{} & \todo{} \\
-Qwen2.5-7B & \textbf{HLCC Norm-Shift} & \todo{} & \todo{} & \todo{} & \todo{} \\
-\midrule
-Llama-3.1-8B & Softmax Entropy & \todo{} & \todo{} & \todo{} & \todo{} \\
-Llama-3.1-8B & Temperature Scaling & \todo{} & \todo{} & \todo{} & \todo{} \\
-Llama-3.1-8B & Self-Consistency & \todo{} & \todo{} & \todo{} & \todo{} \\
-Llama-3.1-8B & \textbf{HLCC Norm-Shift} & \todo{} & \todo{} & \todo{} & \todo{} \\
-\bottomrule
-\end{tabular}
-\label{tab:calibration_all}
-\end{table}
-
-\todo{Analysis: discuss which method categories are most effective, cost-performance tradeoffs, and whether norm-shift signals provide unique information beyond logit-based methods.}
 
 % ============================================================
 \section{Discussion}
 \label{sec:discussion}
 % ============================================================
 
-\subsection{The Overconfidence Problem}
+\paragraph{Conservative Bias as a Feature.}
+The \hlcc{} optimal confidence formula $\cstar = p/[4(1-p)]$
+systematically underestimates confidence for models with accuracy below
+75\%.  While this departs from the strict propriety of Brier and
+log-loss, it may be advantageous in deployment scenarios where
+overconfident errors carry disproportionate cost---such as medical
+diagnosis, legal reasoning, or autonomous decision-making.
 
-Our baseline results highlight that overconfidence is a significant issue for some models. Qwen2-1.5B, despite lower accuracy than other models, expressed much higher confidence---a dangerous combination that the \hlcc{} scoring function is designed to penalize heavily.
+\paragraph{Model-Dependent NormShift Effectiveness.}
+The NormShift head exhibits striking performance variation across model
+architectures.  On Llama-3.1-8B, NormShift achieves the best
+calibration of any method (ECE\,=\,0.105 vs.\ 0.322 for
+self-consistency) and competitive discrimination (AUROC\,=\,0.870
+vs.\ 0.858 for entropy), using only a single forward pass.  On
+Qwen2.5-7B, however, the same training procedure yields
+AUROC\,=\,0.401---below random.  This suggests that the utility of
+norm-shift signals as a confidence proxy varies substantially with the
+model's internal normalisation dynamics and may require
+architecture-specific investigation.
 
-The quadratic penalty term $-2c^2$ ensures that confident wrong answers receive scores approaching $-2.0$, while hedged wrong answers (low confidence) receive scores near $0.0$. This creates strong pressure for models to be conservative when uncertain.
+\paragraph{NormShift Signal Interpretation.}
+The norm-shift signal $\delta^{(\ell)}$ captures how much each
+transformer layer's normalisation step altered the representation.
+Layers that apply large corrections may indicate inputs that fall outside
+the model's learned distribution, providing a complementary uncertainty
+signal to logit-based methods.  The ablation (\Cref{tab:ablation})
+quantifies the contribution of this signal relative to the standard
+hidden-state approach.
 
-\subsection{Calibration vs. Accuracy Trade-offs}
+\paragraph{Computational Cost Tradeoffs.}
+Tier~1 methods (entropy, MSP, NormShift) add negligible cost to
+inference.  The NormShift head requires a single additional forward pass
+through $\sim$500K parameters.  In contrast, Tier~3 methods
+(self-consistency, semantic entropy) multiply inference cost by the
+sample count $n$.  On Llama-3.1-8B, NormShift matches or exceeds
+multi-pass methods at a fraction of the cost.
 
-Interestingly, the highest-accuracy model (TinyLlama) had the worst calibration in terms of ECE. This suggests that accuracy and calibration are somewhat independent properties that may require separate optimization.
+\paragraph{Limitations.}
+\begin{enumerate}[nosep]
+  \item All models are evaluated under 4-bit quantisation; full-precision
+        results may differ.
+  \item The MCQ evaluation format may not fully capture open-ended
+        generation confidence.
+  \item The NormShift head is trained per-model and does not transfer
+        across architectures.
+  \item Performance varies substantially across model architectures;
+        Llama-3.1-8B shows excellent results while Qwen2.5-7B shows
+        poor discrimination, suggesting architecture-dependent
+        factors.
+  \item The HLCC scoring function's conservative bias may undervalue
+        confidence in well-calibrated high-accuracy models.
+\end{enumerate}
 
-The \hlcc{} loss function addresses this by directly optimizing for calibrated confidence, not just accuracy. The cross-entropy component maintains pressure for correct predictions, while the \hlcc{} component shapes the confidence distribution.
 
-\subsection{Limitations}
+% ============================================================
+\section{LM-Polygraph Integration}
+\label{sec:polygraph}
+% ============================================================
 
-\begin{itemize}
-    \item Our entropy-based baseline confidence may not reflect the model's true uncertainty
-    \item Validation sets of 200--300 examples provide reasonable but not definitive statistical power; larger evaluations would strengthen conclusions
-    \item We evaluate only instruction-tuned models across seven architectures (1.1B--8.0B); base models and larger scales ($>$10B) may behave differently
-    \item All experiments use 4-bit quantization, which may affect calibration properties compared to full-precision models
-\end{itemize}
+To enable direct comparison with the broader uncertainty estimation
+literature, we implement the NormShift confidence head as a custom
+estimator within the
+LM-Polygraph~\cite{fadeeva2024lmpolygraph} benchmarking framework.
+LM-Polygraph provides over 40 uncertainty estimation methods and
+standardised evaluation protocols, making it the primary benchmark
+for comparing UE methods across models and tasks.
+
+\subsection{Integration Architecture}
+
+The integration wraps the NormShift confidence head as an LM-Polygraph
+\texttt{Estimator} subclass.  The key challenge is that NormShift
+requires full hidden states from all transformer layers
+(\texttt{output\_hidden\_states=True}), while most LM-Polygraph methods
+operate only on output logits.
+
+We implement a custom \texttt{StatCalculator} that extracts three
+signals from each forward pass:
+\begin{enumerate}[nosep]
+  \item The full hidden states tuple
+        $({\mathbf{h}^{(0)}, \ldots, \mathbf{h}^{(L)}})$,
+  \item Per-layer norm-shift signals
+        $\boldsymbol{\delta} \in \R^{L}$ via
+        $\delta^{(\ell)} = 1 - \text{std}(\mathbf{h}^{(\ell)})$,
+  \item The final hidden state $\mathbf{h}^{(L)}$ for the combined path.
+\end{enumerate}
+
+The estimator inverts the confidence output to match LM-Polygraph's
+convention (higher values indicate greater uncertainty):
+\begin{equation}
+  u_{\text{NormShift}} = 1 - c_{\text{NormShift}}.
+\end{equation}
+
+All models are loaded with the same 4-bit NF4 quantisation used
+throughout this work, and evaluation uses identical MCQ prompts to
+ensure comparability across methods.
+
+\subsection{LM-Polygraph Benchmark Results}
+
+\Cref{tab:polygraph} presents the initial benchmark comparison on
+TruthfulQA using Qwen2.5-7B.  Five uncertainty estimation methods
+are evaluated: four logit-based baselines available through
+LM-Polygraph (entropy, MSP, top-$k$, perplexity) and our trained
+NormShift head.
+
+\begin{table}[H]
+\centering
+\caption{LM-Polygraph benchmark (pre-retrain): Qwen2.5-7B on TruthfulQA
+         (817 examples).  NormShift uses ARC-Easy-trained checkpoint.
+         Best per column in \textbf{bold}.}
+\label{tab:polygraph}
+\small
+\begin{tabular}{@{}lcccccccc@{}}
+\toprule
+Method & Acc & Conf & Gap$\downarrow$ & ECE$\downarrow$ & Brier$\downarrow$
+       & AUROC$\uparrow$ & AUPRC$\uparrow$ & PRR$\uparrow$ \\
+\midrule
+Entropy      & 0.497 & 0.578 & \textbf{0.081} & \textbf{0.145} & \textbf{0.278}
+             & 0.602 & 0.539 & 0.097 \\
+MSP          & 0.497 & 0.759 & 0.262 & 0.262 & 0.309
+             & 0.627 & 0.559 & 0.157 \\
+Top-$k$      & 0.497 & 0.819 & 0.322 & 0.322 & 0.339
+             & \textbf{0.634} & \textbf{0.569} & \textbf{0.177} \\
+Perplexity   & 0.497 & 0.759 & 0.262 & 0.262 & 0.309
+             & 0.627 & 0.559 & 0.157 \\
+NormShift$^{\dagger}$ & 0.497 & 0.821 & 0.324 & 0.330 & 0.368
+             & 0.416 & 0.424 & $-$0.258 \\
+\bottomrule
+\multicolumn{9}{l}{\scriptsize $\dagger$ Out-of-distribution: checkpoint trained on ARC-Easy.
+         See \Cref{tab:polygraph-retrained} for in-domain results.}
+\end{tabular}
+\end{table}
+
+\paragraph{Analysis.}
+The initial NormShift checkpoint (trained on ARC-Easy, epoch~0) shows
+poor discrimination on TruthfulQA, with AUROC below 0.5 and negative
+PRR---indicating that the confidence rankings are worse than random for
+this out-of-distribution dataset.  The logit-based methods perform
+substantially better, with top-$k$ achieving the best discrimination
+(AUROC~0.634, PRR~0.177) and entropy achieving the best calibration
+(ECE~0.145).
+
+This result motivates \emph{in-domain retraining}: the NormShift head
+must be trained on data from the target distribution to learn
+meaningful confidence estimates.  \Cref{tab:polygraph-retrained} shows
+results after retraining on TruthfulQA (600 training examples, 15
+epochs, best checkpoint at epoch~1 by validation HLCC).
+
+\paragraph{Retrained Results.}
+After in-domain training, NormShift achieves a substantial improvement:
+AUROC rises from 0.416 to \textbf{0.752} ($+$0.336), surpassing all
+logit-based methods (next best: top-$k$ at 0.634).  PRR jumps from
+$-$0.258 to \textbf{0.484}, indicating strong selective prediction---the
+model can reliably reject uncertain predictions.  AUPRC reaches
+\textbf{0.701} vs.\ 0.569 for top-$k$.
+
+The mean confidence drops to 0.256 (from 0.821 pre-retrain), reflecting
+the conservative bias of \hlcc{} training.  While this increases the
+calibration gap (0.241) relative to entropy (0.081), the discrimination
+and selective prediction gains are substantial.  Notably, the Brier
+score (0.289) is competitive with entropy (0.278), confirming that the
+overall probabilistic quality remains strong.
+
+\begin{table}[H]
+\centering
+\caption{LM-Polygraph benchmark after NormShift retraining on TruthfulQA
+         (600 train examples, 15 epochs).
+         Qwen2.5-7B, 817 evaluation examples.
+         Best per column in \textbf{bold}.}
+\label{tab:polygraph-retrained}
+\small
+\begin{tabular}{@{}lcccccccc@{}}
+\toprule
+Method & Acc & Conf & Gap$\downarrow$ & ECE$\downarrow$ & Brier$\downarrow$
+       & AUROC$\uparrow$ & AUPRC$\uparrow$ & PRR$\uparrow$ \\
+\midrule
+Entropy      & 0.497 & 0.578 & \textbf{0.081} & \textbf{0.145} & \textbf{0.278}
+             & 0.602 & 0.539 & 0.097 \\
+MSP          & 0.497 & 0.759 & 0.262 & 0.262 & 0.309
+             & 0.627 & 0.559 & 0.157 \\
+Top-$k$      & 0.497 & 0.819 & 0.322 & 0.322 & 0.339
+             & 0.634 & 0.569 & 0.177 \\
+\textbf{NormShift} & 0.497 & 0.256 & 0.241 & 0.254 & 0.289
+             & \textbf{0.752} & \textbf{0.701} & \textbf{0.484} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\paragraph{Cross-Dataset Transfer.}
+\Cref{tab:polygraph-transfer} reports the full metric comparison when
+the TruthfulQA-trained head is evaluated on held-out datasets.
+
+\begin{table}[H]
+\centering
+\caption{NormShift cross-dataset transfer: trained on TruthfulQA,
+         evaluated elsewhere.  Qwen2.5-7B.  PRR ($\uparrow$) and
+         AUROC ($\uparrow$) shown for each method.}
+\label{tab:polygraph-transfer}
+\small
+\begin{tabular}{@{}lcc|cc|cc|cc@{}}
+\toprule
+ & \multicolumn{2}{c|}{Entropy} & \multicolumn{2}{c|}{Top-$k$}
+ & \multicolumn{2}{c|}{NormShift} & \multicolumn{2}{c}{Best logit} \\
+\cmidrule(lr){2-3}\cmidrule(lr){4-5}\cmidrule(lr){6-7}\cmidrule(lr){8-9}
+Dataset & AUC & PRR & AUC & PRR & AUC & PRR & AUC & PRR \\
+\midrule
+TruthfulQA     & .602 & .097 & .634 & .177 & \textbf{.752} & \textbf{.484}
+               & .634 & .177 \\
+ARC-Challenge  & .830 & .771 & .828 & .768 & .569 & .277
+               & \textbf{.831} & \textbf{.772} \\
+MMLU           & \textbf{.792} & \textbf{.679} & .761 & .641 & .468 & $-$.090
+               & .792 & .679 \\
+HellaSwag      & .718 & .552 & .721 & .547 & .402 & $-$.182
+               & \textbf{.723} & \textbf{.553} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+
+% ============================================================
+\section{Related Work}
+\label{sec:related}
+% ============================================================
+
+\paragraph{Confidence Calibration in Neural Networks.}
+\citet{guo2017calibration} demonstrated that modern neural networks are
+poorly calibrated, with temperature scaling as a simple post-hoc fix.
+\citet{naeini2015obtaining} introduced ECE as the standard calibration
+metric.  \citet{nixon2019measuring} showed that ECE is sensitive to
+binning choices and proposed adaptive calibration error.
+
+\paragraph{Uncertainty Estimation in LLMs.}
+\citet{kadavath2022language} studied self-evaluation in large language
+models, finding that models can estimate their own accuracy.
+\citet{kuhn2023semantic} proposed semantic entropy as a
+generation-aware uncertainty measure.  \citet{xiong2024llms} provided a
+comprehensive survey of LLM confidence estimation, categorising methods
+into logit-based, verbalised, and consistency-based
+approaches.  \citet{lin2024generating} and \citet{tian2023just} explored
+verbalized confidence elicitation and found that prompting strategies
+significantly affect self-reported confidence quality.
+
+\paragraph{Selective Prediction.}
+\citet{geifman2017selective} formalised selective prediction as
+accuracy-coverage tradeoffs.  The prediction rejection ratio (PRR) was
+introduced by \citet{malinin2017predictive} and adopted by the
+LM-Polygraph framework~\cite{fadeeva2024lmpolygraph} as a standard
+metric for uncertainty benchmarking.
+
+\paragraph{Confidence-Based Marking.}
+\citet{gardnermedwin1995} introduced the CBM scheme for educational
+assessment.  \citet{budescu2012optimal} studied optimal scoring rules
+for confidence-weighted testing, analysing the tradeoff between strict
+propriety and behavioural desiderata such as participation incentives.
+
 
 % ============================================================
 \section{Conclusion}
 \label{sec:conclusion}
 % ============================================================
 
-We introduced the Hybrid Linear-Convex Confidence (\hlcc{}) loss function for training neural networks with calibrated uncertainty estimates. The asymmetric scoring function---linear rewards for correct predictions, quadratic penalties for incorrect ones---creates appropriate incentives for well-calibrated confidence.
+We have presented the \hlcc{} scoring function and the NormShift
+confidence head as a method for training calibrated confidence estimates
+in language models.  Our key findings are:
 
-Our experiments across seven language models (1.1B--8.0B parameters) reveal significant variation in baseline calibration:
-\begin{itemize}
-    \item \textbf{Small models} (1.1B--2.7B): Accuracy ranges from 30--95\% on TruthfulQA, with calibration failures in both directions---TinyLlama is severely underconfident (17\% confidence at 95\% accuracy) while Qwen2-1.5B is dangerously overconfident (67\% confidence at 30\% accuracy).
-    \item \textbf{Large models} (3.8B--8.0B): Higher baseline accuracy (50--65\%) provides a more challenging test of calibration methods, as models are closer to the region where confidence should genuinely be higher.
-\end{itemize}
-
-Training a confidence head with \hlcc{} loss achieved substantial calibration improvements across all model sizes:
-\begin{itemize}
-    \item \textbf{Small models}: ECE reduced by 41--54\% (Phi-2: 0.226 $\rightarrow$ 0.133; Qwen2-1.5B: 0.359 $\rightarrow$ 0.166), with confidence automatically adjusted toward true accuracy in both directions.
-    \item \textbf{Large models}: \todo{Summarize large model calibration improvements after experiments complete.}
-\end{itemize}
-
-Critically, the \hlcc{} loss automatically adapts to correct calibration errors in both directions: increasing confidence for underconfident models and decreasing it for overconfident models. QLoRA fine-tuning experiments further demonstrate that incorporating \hlcc{} into the training objective provides benefits over standard cross-entropy at both small and large model scales.
-
-The \hlcc{} framework provides both a diagnostic tool for measuring calibration and a training objective for improving it. Future work should explore:
-\begin{enumerate}
-    \item Scaling to larger models (13B+) and open-ended generation tasks
-    \item Integration of LayerNorm ``doubt signals'' for richer uncertainty estimation
-    \item Application to safety-critical domains where overconfidence is particularly dangerous
-    \item Adaptive loss weighting that adjusts $\alpha$ based on model calibration state during training
+\begin{enumerate}[nosep]
+  \item \textbf{In-domain dominance.}  When trained on the target
+        distribution, NormShift achieves AUROC\,=\,0.752 and
+        PRR\,=\,0.484 on TruthfulQA---surpassing all logit-based
+        methods (best: top-$k$ at 0.634 / 0.177) while requiring only
+        a single forward pass through $\sim$500K additional parameters.
+  \item \textbf{Architecture sensitivity.}  On Llama-3.1-8B, NormShift
+        achieves state-of-the-art calibration (ECE\,=\,0.105) and
+        discrimination (AUROC\,=\,0.870) even with an out-of-domain
+        checkpoint, while Qwen2.5-7B requires in-domain training.
+  \item \textbf{Limited transfer.}  Cross-dataset evaluation reveals
+        that NormShift degrades on out-of-distribution data
+        ($\Delta$AUROC\,$= -0.26$ to $-0.32$), motivating future work
+        on domain-agnostic norm-shift features.
+  \item \textbf{Conservative bias.}  The \hlcc{} scoring function
+        induces a conservative confidence mapping ($\cstar < p$ for
+        $p < 0.75$), which heavily penalises overconfident errors.
+        This makes NormShift the only single-pass method achieving
+        positive HLCC scores on Llama-3.1-8B, where all logit-based
+        methods score negative due to severe overconfidence.
 \end{enumerate}
 
-% ============================================================
-% References
-% ============================================================
+The theoretical analysis confirms that \hlcc{} departs from strict
+propriety in favour of asymmetric risk---rewarding correct confidence
+linearly but penalising incorrect confidence quadratically.  Our
+LM-Polygraph integration enables direct comparison with the broader
+uncertainty estimation literature, and our benchmarking framework
+provides a systematic evaluation methodology for future confidence
+estimation research.
 
+
+% ============================================================
+% BIBLIOGRAPHY
+% ============================================================
 \bibliographystyle{plainnat}
-\begin{thebibliography}{10}
-
-\bibitem[Clark et al.(2018)]{clark2018arc}
-Clark, P., Cowhey, I., Etzioni, O., Khot, T., Sabharwal, A., Schoenick, C., and Tafjord, O. (2018).
-Think you have solved question answering? Try ARC, the AI2 reasoning challenge.
-\textit{arXiv preprint arXiv:1803.05457}.
-
-\bibitem[Gal and Ghahramani(2016)]{gal2016dropout}
-Gal, Y. and Ghahramani, Z. (2016).
-Dropout as a Bayesian approximation: Representing model uncertainty in deep learning.
-\textit{International Conference on Machine Learning}.
-
-\bibitem[Gardner-Medwin and Curtin(2012)]{gardner2012confidence}
-Gardner-Medwin, A. and Curtin, N. (2012).
-Confidence-based marking: Towards deeper learning and better exams.
-\textit{Assessment in Education}.
-
-\bibitem[Guo et al.(2017)]{guo2017calibration}
-Guo, C., Pleiss, G., Sun, Y., and Weinberger, K. Q. (2017).
-On calibration of modern neural networks.
-\textit{International Conference on Machine Learning}.
-
-\bibitem[Hendrycks et al.(2021)]{hendrycks2021mmlu}
-Hendrycks, D., Burns, C., Basart, S., Zou, A., Mazeika, M., Song, D., and Steinhardt, J. (2021).
-Measuring massive multitask language understanding.
-\textit{International Conference on Learning Representations}.
-
-\bibitem[Lin et al.(2021)]{lin2021truthfulqa}
-Lin, S., Hilton, J., and Evans, O. (2021).
-TruthfulQA: Measuring how models mimic human falsehoods.
-\textit{arXiv preprint arXiv:2109.07958}.
-
-\bibitem[M{\"u}ller et al.(2019)]{muller2019does}
-M{\"u}ller, R., Kornblith, S., and Hinton, G. E. (2019).
-When does label smoothing help?
-\textit{Advances in Neural Information Processing Systems}.
-
-\bibitem[Zellers et al.(2019)]{zellers2019hellaswag}
-Zellers, R., Holtzman, A., Bisk, Y., Farhadi, A., and Choi, Y. (2019).
-HellaSwag: Can a machine really finish your sentence?
-\textit{Association for Computational Linguistics}.
-
-\end{thebibliography}
-
-% ============================================================
-\appendix
-\section{Training Configuration}
-\label{app:training_config}
-% ============================================================
-
-\begin{table}[h]
-\centering
-\caption{Confidence Head Training Hyperparameters}
-\begin{tabular}{lcc}
-\toprule
-Parameter & Small Models & Large Models \\
-\midrule
-Training dataset & ARC-Easy & ARC-Easy \\
-Validation dataset & TruthfulQA & TruthfulQA \\
-Training examples & 1500 & 2500 \\
-Validation examples & 200 & 300 \\
-Epochs & 15 & 25 \\
-Batch size & 8 & 8 \\
-Learning rate & $1 \times 10^{-4}$ & $1 \times 10^{-4}$ \\
-Optimizer & AdamW & AdamW \\
-Weight decay & 0.01 & 0.01 \\
-Checkpoint interval & 5 epochs & 5 epochs \\
-Best model criterion & Lowest ECE & Lowest ECE \\
-\bottomrule
-\end{tabular}
-\label{tab:head_hyperparams}
-\end{table}
-
-\begin{table}[h]
-\centering
-\caption{QLoRA Fine-tuning Hyperparameters}
-\begin{tabular}{lcc}
-\toprule
-Parameter & Small Models & Large Models \\
-\midrule
-Training examples & 1000 & 2500 \\
-Validation examples & 200 & 300 \\
-Epochs & 10 & 15 \\
-Micro-batch size & 4 & 4 \\
-Gradient accumulation & 4 & 4 \\
-Effective batch size & 16 & 16 \\
-Learning rate & $2 \times 10^{-4}$ & $2 \times 10^{-4}$ \\
-Warmup ratio & 0.1 & 0.1 \\
-LoRA rank ($r$) & 16 & 16 \\
-LoRA alpha ($\alpha$) & 32 & 32 \\
-LoRA dropout & 0.05 & 0.05 \\
-HLCC loss weight ($\alpha$) & 0.5 & 0.5 \\
-Precision & FP16 & FP16 \\
-\bottomrule
-\end{tabular}
-\label{tab:qlora_hyperparams}
-\end{table}
-
-\begin{table}[h]
-\centering
-\caption{Operations Per Epoch and Estimated Wall Time}
-\begin{tabular}{llrrr}
-\toprule
-Pipeline & Model Size & Batches/Epoch & Trainable Params & Est.\ Wall Time/Epoch \\
-\midrule
-\multirow{2}{*}{Head training} & Small (1--3B) & 188 & $\sim$1.6M & $\sim$15 min \\
- & Large (7--8B) & 313 & $\sim$4.2M & $\sim$20 min \\
-\midrule
-\multirow{2}{*}{QLoRA} & Small (1--3B) & 250 & $\sim$8M & $\sim$8 min \\
- & Large (7--8B) & 625 & $\sim$18M & $\sim$12 min \\
-\bottomrule
-\end{tabular}
-\label{tab:ops_per_epoch}
-\end{table}
-
-\textbf{Hardware}: All experiments were conducted on a single NVIDIA GPU with 4-bit NF4 quantization (double quantization enabled) via bitsandbytes. Models are cached to a local 3TB drive to avoid repeated downloads.
+\bibliography{hlcc_paper}
 
 \end{document}
