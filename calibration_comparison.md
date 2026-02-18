@@ -76,7 +76,7 @@ python calibration_baselines.py --model qwen2.5-7b --dataset truthfulqa --max-ex
 
 # Include trained HLCC norm-shift head
 python calibration_baselines.py --model qwen2.5-7b --dataset truthfulqa --max-examples 300 \
-    --norm-shift-checkpoint E:/NNConfidence/checkpoints/best_norm_shift_combined.pt
+    --norm-shift-checkpoint data/checkpoints/best_norm_shift_combined.pt
 
 # Run on ARC-Challenge
 python calibration_baselines.py --model qwen2.5-7b --dataset arc-challenge --max-examples 300

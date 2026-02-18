@@ -113,7 +113,7 @@ python hlcc_mcq_system.py --model qwen2.5-7b --dataset truthfulqa --max-examples
 
 ### Checkpoints
 
-Checkpoints are saved to `E:/NNConfidence/checkpoints/` with fields:
+Checkpoints are saved to `data/checkpoints/` with fields:
 
 ```python
 {

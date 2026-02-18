@@ -1,0 +1,37 @@
+# head_weights.dat — Trained confidence head weight importance per layer
+# Source: D:\git\NNConfidence\data\checkpoints\llama3.1-8b_norm_shift\best_norm_shift_combined.pt
+# Layer weights = sum(abs(norm_shift_proj.0.weight), dim=0)
+# epoch=6, T=0.9574
+# Layer  Weight_importance
+   1  6.4114
+   2  4.5870
+   3  5.1039
+   4  5.6778
+   5  6.0208
+   6  5.1641
+   7  5.3531
+   8  5.7622
+   9  5.4327
+  10  5.9872
+  11  5.5767
+  12  5.2875
+  13  6.2890
+  14  5.8648
+  15  5.9031
+  16  5.8575
+  17  5.3765
+  18  6.2154
+  19  6.8507
+  20  6.0340
+  21  5.9322
+  22  5.7389
+  23  6.2863
+  24  5.0251
+  25  5.6315
+  26  5.9312
+  27  5.3691
+  28  6.2095
+  29  5.5202
+  30  6.6955
+  31  5.9188
+  32  5.2724

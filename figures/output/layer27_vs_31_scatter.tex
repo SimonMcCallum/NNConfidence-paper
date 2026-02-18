@@ -1,0 +1,206 @@
+% GNUPLOT: LaTeX picture with Postscript
+\documentclass{minimal}
+% Set font size
+\makeatletter
+\def\@ptsize{1}
+\InputIfFileExists{size11.clo}{}{%
+   \GenericError{(gnuplot) \space\space\space\@spaces}{%
+      Gnuplot Error: File `size11.clo' not found! Could not set font size%
+   }{See the gnuplot documentation for explanation.%
+   }{For using a font size a file `size<fontsize>.clo' has to exist.
+        Falling back ^^Jto default fontsize 10pt.}%
+  \def\@ptsize{0}
+  \input{size10.clo}%
+}%
+\makeatother
+% Load packages
+\usepackage{calc}
+\usepackage{graphicx}
+\usepackage{color}
+\usepackage{ucs}
+\usepackage[cp1252]{inputenc}
+\makeatletter
+% Select an appropriate default driver (from TeXLive graphics.cfg)
+\begingroup
+  \chardef\x=0 %
+  % check pdfTeX
+  \@ifundefined{pdfoutput}{}{%
+    \ifcase\pdfoutput
+    \else
+      \chardef\x=1 %
+    \fi
+  }%
+  % check VTeX
+  \@ifundefined{OpMode}{}{%
+    \chardef\x=2 %
+  }%
+\expandafter\endgroup
+\ifcase\x
+  % default case
+  \PassOptionsToPackage{dvips}{geometry}
+\or
+  % pdfTeX is running in pdf mode
+  \PassOptionsToPackage{pdftex}{geometry}
+\else
+  % VTeX is running
+  \PassOptionsToPackage{vtex}{geometry}
+\fi
+\makeatother
+% Set papersize
+\usepackage[papersize={396.00bp,324.00bp},text={396.00bp,324.00bp}]{geometry}
+% No page numbers and no paragraph indentation
+\pagestyle{empty}
+\setlength{\parindent}{0bp}%
+% Load configuration file
+\InputIfFileExists{gnuplot.cfg}{%
+  \typeout{Using configuration file gnuplot.cfg}%
+}{%
+ \typeout{No configuration file gnuplot.cfg found.}%
+}%
+\usepackage{amsmath}\usepackage{lmodern}
+\begin{document}
+\begingroup
+  % Encoding inside the plot.  In the header of your document, this encoding
+  % should to defined, e.g., by using
+  % \usepackage[cp1252,<other encodings>]{inputenc}
+  \inputencoding{cp1252}%
+  \makeatletter
+  \providecommand\color[2][]{%
+    \GenericError{(gnuplot) \space\space\space\@spaces}{%
+      Package color not loaded in conjunction with
+      terminal option `colourtext'%
+    }{See the gnuplot documentation for explanation.%
+    }{Either use 'blacktext' in gnuplot or load the package
+      color.sty in LaTeX.}%
+    \renewcommand\color[2][]{}%
+  }%
+  \providecommand\includegraphics[2][]{%
+    \GenericError{(gnuplot) \space\space\space\@spaces}{%
+      Package graphicx or graphics not loaded%
+    }{See the gnuplot documentation for explanation.%
+    }{The gnuplot epslatex terminal needs graphicx.sty or graphics.sty.}%
+    \renewcommand\includegraphics[2][]{}%
+  }%
+  \providecommand\rotatebox[2]{#2}%
+  \@ifundefined{ifGPcolor}{%
+    \newif\ifGPcolor
+    \GPcolortrue
+  }{}%
+  \@ifundefined{ifGPblacktext}{%
+    \newif\ifGPblacktext
+    \GPblacktextfalse
+  }{}%
+  % define a \g@addto@macro without @ in the name:
+  \let\gplgaddtomacro\g@addto@macro
+  % define empty templates for all commands taking text:
+  \gdef\gplbacktext{}%
+  \gdef\gplfronttext{}%
+  \makeatother
+  \ifGPblacktext
+    % no textcolor at all
+    \def\colorrgb#1{}%
+    \def\colorgray#1{}%
+  \else
+    % gray or color?
+    \ifGPcolor
+      \def\colorrgb#1{\color[rgb]{#1}}%
+      \def\colorgray#1{\color[gray]{#1}}%
+      \expandafter\def\csname LTw\endcsname{\color{white}}%
+      \expandafter\def\csname LTb\endcsname{\color{black}}%
+      \expandafter\def\csname LTa\endcsname{\color{black}}%
+      \expandafter\def\csname LT0\endcsname{\color[rgb]{1,0,0}}%
+      \expandafter\def\csname LT1\endcsname{\color[rgb]{0,1,0}}%
+      \expandafter\def\csname LT2\endcsname{\color[rgb]{0,0,1}}%
+      \expandafter\def\csname LT3\endcsname{\color[rgb]{1,0,1}}%
+      \expandafter\def\csname LT4\endcsname{\color[rgb]{0,1,1}}%
+      \expandafter\def\csname LT5\endcsname{\color[rgb]{1,1,0}}%
+      \expandafter\def\csname LT6\endcsname{\color[rgb]{0,0,0}}%
+      \expandafter\def\csname LT7\endcsname{\color[rgb]{1,0.3,0}}%
+      \expandafter\def\csname LT8\endcsname{\color[rgb]{0.5,0.5,0.5}}%
+    \else
+      % gray
+      \def\colorrgb#1{\color{black}}%
+      \def\colorgray#1{\color[gray]{#1}}%
+      \expandafter\def\csname LTw\endcsname{\color{white}}%
+      \expandafter\def\csname LTb\endcsname{\color{black}}%
+      \expandafter\def\csname LTa\endcsname{\color{black}}%
+      \expandafter\def\csname LT0\endcsname{\color{black}}%
+      \expandafter\def\csname LT1\endcsname{\color{black}}%
+      \expandafter\def\csname LT2\endcsname{\color{black}}%
+      \expandafter\def\csname LT3\endcsname{\color{black}}%
+      \expandafter\def\csname LT4\endcsname{\color{black}}%
+      \expandafter\def\csname LT5\endcsname{\color{black}}%
+      \expandafter\def\csname LT6\endcsname{\color{black}}%
+      \expandafter\def\csname LT7\endcsname{\color{black}}%
+      \expandafter\def\csname LT8\endcsname{\color{black}}%
+    \fi
+  \fi
+    \setlength{\unitlength}{0.0500bp}%
+    \ifx\gptboxheight\undefined%
+      \newlength{\gptboxheight}%
+      \newlength{\gptboxwidth}%
+      \newsavebox{\gptboxtext}%
+    \fi%
+    \setlength{\fboxrule}{0.5pt}%
+    \setlength{\fboxsep}{1pt}%
+    \definecolor{tbcol}{rgb}{1,1,1}%
+\begin{picture}(7920.00,6480.00)%
+    \gplgaddtomacro\gplbacktext{%
+      \csname LTb\endcsname%%
+      \put(946,1030){\makebox(0,0)[r]{\strut{}$0.32$}}%
+      \csname LTb\endcsname%%
+      \put(946,1682){\makebox(0,0)[r]{\strut{}$0.34$}}%
+      \csname LTb\endcsname%%
+      \put(946,2334){\makebox(0,0)[r]{\strut{}$0.36$}}%
+      \csname LTb\endcsname%%
+      \put(946,2986){\makebox(0,0)[r]{\strut{}$0.38$}}%
+      \csname LTb\endcsname%%
+      \put(946,3637){\makebox(0,0)[r]{\strut{}$0.4$}}%
+      \csname LTb\endcsname%%
+      \put(946,4289){\makebox(0,0)[r]{\strut{}$0.42$}}%
+      \csname LTb\endcsname%%
+      \put(946,4941){\makebox(0,0)[r]{\strut{}$0.44$}}%
+      \csname LTb\endcsname%%
+      \put(946,5593){\makebox(0,0)[r]{\strut{}$0.46$}}%
+      \csname LTb\endcsname%%
+      \put(1457,484){\makebox(0,0){\strut{}$0.6$}}%
+      \csname LTb\endcsname%%
+      \put(2215,484){\makebox(0,0){\strut{}$0.61$}}%
+      \csname LTb\endcsname%%
+      \put(2974,484){\makebox(0,0){\strut{}$0.62$}}%
+      \csname LTb\endcsname%%
+      \put(3732,484){\makebox(0,0){\strut{}$0.63$}}%
+      \csname LTb\endcsname%%
+      \put(4490,484){\makebox(0,0){\strut{}$0.64$}}%
+      \csname LTb\endcsname%%
+      \put(5248,484){\makebox(0,0){\strut{}$0.65$}}%
+      \csname LTb\endcsname%%
+      \put(6007,484){\makebox(0,0){\strut{}$0.66$}}%
+      \csname LTb\endcsname%%
+      \put(6765,484){\makebox(0,0){\strut{}$0.67$}}%
+      \csname LTb\endcsname%%
+      \put(7523,484){\makebox(0,0){\strut{}$0.68$}}%
+      \colorrgb{0.33,0.33,0.33}%%
+      \put(4642,5756){\makebox(0,0)[l]{\strut{}\footnotesize L27 gap: $\Delta\mu = 0.019$}}%
+      \put(4642,5430){\makebox(0,0)[l]{\strut{}\footnotesize L31 gap: $\Delta\mu = 0.047$ ($2.5\times$)}}%
+      \colorrgb{0.13,0.55,0.13}%%
+      \put(5627,4778){\makebox(0,0){\strut{}Correct}}%
+      \colorrgb{0.70,0.13,0.13}%%
+      \put(3353,2171){\makebox(0,0){\strut{}Incorrect}}%
+    }%
+    \gplgaddtomacro\gplfronttext{%
+      \csname LTb\endcsname%%
+      \put(7004,929){\makebox(0,0)[r]{\strut{}Correct ($n$=60)}}%
+      \csname LTb\endcsname%%
+      \put(7004,821){\makebox(0,0)[r]{\strut{}Incorrect ($n$=30)}}%
+      \csname LTb\endcsname%%
+      \put(209,3311){\rotatebox{-270.00}{\makebox(0,0){\strut{}Norm-shift $s_{31} = 1 - \mathrm{std}(\mathbf{h}^{[31]})$}}}%
+      \put(4300,154){\makebox(0,0){\strut{}Norm-shift $s_{27} = 1 - \mathrm{std}(\mathbf{h}^{[27]})$}}%
+      \put(4300,6149){\makebox(0,0){\strut{}\textbf{Confidence Head: Layer 27 vs Layer 31 Norm-Shift Separation}}}%
+    }%
+    \gplbacktext
+    \put(0,0){\includegraphics[width={396.00bp},height={324.00bp}]{docs/figures/output/layer27_vs_31_scatter-inc}}%
+    \gplfronttext
+  \end{picture}%
+\endgroup
+\end{document}

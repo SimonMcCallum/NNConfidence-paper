@@ -1,0 +1,9 @@
+# layer27_vs_31_boxplot.dat — Quartile statistics
+# Source: llama3.1-8b
+# n_correct=60, n_incorrect=30
+# Layers: 27 and 31
+# Category  Median  Q1  Q3  Min  Max  Mean
+L27_correct           0.6521  0.6457  0.6588  0.6085  0.6707  0.6512
+L27_incorrect         0.6336  0.6250  0.6407  0.6032  0.6559  0.6322
+L31_correct           0.4186  0.4020  0.4295  0.3369  0.4602  0.4145
+L31_incorrect         0.3679  0.3508  0.3777  0.3223  0.4343  0.3678

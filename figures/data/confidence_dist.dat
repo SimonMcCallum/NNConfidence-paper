@@ -1,0 +1,12 @@
+# confidence_dist.dat — Confidence distribution histogram
+# Bin_center  Correct_count  Incorrect_count
+0.05    15     3
+0.15    18     5
+0.25     4     1
+0.35     6     3
+0.45     4     1
+0.55     5     7
+0.65     2     5
+0.75     3     3
+0.85     2     2
+0.95     1     0
