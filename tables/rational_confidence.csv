@@ -1,0 +1,8 @@
+p,hlcccstar,briercstar,cbmlevel,regime
+0.00,0.000,0.00,0.2,Abstention
+0.25,0.083,0.25,0.2,Suppressed guessing
+0.50,0.250,0.50,0.4,Conservative caution
+0.67,0.508,0.67,0.6,Moderate commitment
+0.75,0.750,0.75,0.8,Crossover point
+0.80,1.000,0.80,0.8,Saturation threshold
+0.90,1.000,0.90,1.0,Full commitment

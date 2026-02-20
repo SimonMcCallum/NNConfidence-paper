@@ -10,6 +10,8 @@ set terminal epslatex size 5in,3in color colortext standalone \
     header '\usepackage{amsmath}'
 set output 'docs/figures/output/example_signals.tex'
 
+set object 1 rect from screen 0,0 to screen 1,1 behind fillcolor rgb "white" fillstyle solid noborder
+
 set title 'Norm-Shift Profiles: High vs Medium vs Low Confidence' font ",12"
 set xlabel 'Transformer Layer' font ",11"
 set ylabel '$s_i = 1 - \mathrm{std}(\mathbf{h}^{[i]})$' font ",11"

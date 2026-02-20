@@ -1,0 +1,6 @@
+method,displayname,category,accuracy,meanconf,calgap,ece,brier,hlcc,auroc,auprc,prr,accatseventy,accateighty,accatninety,nexamples
+entropy,Entropy,logit,0.620,0.942,0.322,0.322,0.311,0.600,0.901,0.932,0.845,0.805,0.746,0.689,300
+topk,Top-k,logit,0.620,0.972,0.352,0.352,0.342,0.549,0.799,0.838,0.624,0.786,0.742,0.681,300
+msp,MSP,logit,0.620,0.860,0.240,0.240,0.263,0.694,0.719,0.796,0.508,0.733,0.688,0.652,300
+gnll,GNLL,logit,0.620,0.860,0.240,0.240,0.263,0.694,0.719,0.796,0.508,0.733,0.688,0.652,300
+verbalized,Verbalized,generation,0.620,0.570,0.050,0.229,0.298,0.731,0.604,0.707,0.264,0.667,0.642,0.637,300

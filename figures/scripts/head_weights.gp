@@ -11,6 +11,8 @@ set terminal epslatex size 5in,3in color colortext standalone \
     header '\usepackage{amsmath}'
 set output 'docs/figures/output/head_weights.tex'
 
+set object 1 rect from screen 0,0 to screen 1,1 behind fillcolor rgb "white" fillstyle solid noborder
+
 set title 'Trained Head: Layer Attention Weights ($\sum |w_{j,i}|$ per layer $i$)' font ",12"
 set xlabel 'Transformer Layer' font ",11"
 set ylabel 'Weight Importance $\sum_j |w_{j,i}|$' font ",11"

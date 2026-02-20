@@ -8,13 +8,14 @@ All numerical values in this document are derived from actual experiment runs. S
 
 | Data | File | Description |
 |------|------|-------------|
-| **Norm-shift checkpoint** | [`data/checkpoints/llama3.1-8b_norm_shift/best_norm_shift_combined.pt`](../data/checkpoints/llama3.1-8b_norm_shift/best_norm_shift_combined.pt) | Trained head weights (epoch 6, ECE 0.120, 267K params) |
+| **Norm-shift checkpoint (FP16)** | [`data/checkpoints/llama3.1-8b_norm_shift/best_norm_shift_combined.pt`](../data/checkpoints/llama3.1-8b_norm_shift/best_norm_shift_combined.pt) | Trained head weights (epoch 22, HLCC 1.760, ECE 0.040, 267K params) |
 | **Extended head checkpoint** | [`data/checkpoints/llama3.1-8b_extended/best_confidence_head.pt`](../data/checkpoints/llama3.1-8b_extended/best_confidence_head.pt) | Standard ConfidenceHead (epoch 10, ECE 0.192) |
 | **Training history** | [`data/results/extended_training_llama3.1-8b_20260201_074958.json`](../data/results/extended_training_llama3.1-8b_20260201_074958.json) | 25-epoch training log with per-epoch metrics |
 | **Calibration baselines** | [`data/results/calibration_llama3.1-8b_20260201_080919.json`](../data/results/calibration_llama3.1-8b_20260201_080919.json) | 6-method comparison (300 TruthfulQA examples) |
 | **QLoRA CE results** | [`data/results/llama3.1-8b_ce_20260201_080920.json`](../data/results/llama3.1-8b_ce_20260201_080920.json) | Cross-entropy QLoRA fine-tuning |
 | **QLoRA HLCC results** | [`data/results/llama3.1-8b_hlcc_20260201_104929.json`](../data/results/llama3.1-8b_hlcc_20260201_104929.json) | HLCC QLoRA fine-tuning |
 | **Norm-shift signals** | [`data/results/llama8b_norm_shift_signals.json`](../data/results/llama8b_norm_shift_signals.json) | Per-layer std/norm-shift for 90 MCQ examples |
+| **Layer signals (FP16)** | [`data/results/llama3.1-8b_layer_signals.json`](../data/results/llama3.1-8b_layer_signals.json) | Per-layer SD extraction at FP16 precision |
 | **Execution log** | [`data/logs/multiday_20260201_052011.log`](../data/logs/multiday_20260201_052011.log) | Full experiment timeline |
 
 **Figure generation pipeline** (see [docs/figures/](figures/)):
@@ -263,7 +264,7 @@ flowchart LR
     style conf fill:#228B22,color:#fff
 ```
 
-> Surprisingly, the norm-shift-only variant **outperforms** the combined head on calibration (ECE 0.105 vs 0.192), suggesting that normalization dynamics alone carry sufficient signal and the hidden state may introduce overfitting noise.
+> In the FP16 retraining (Feb 2026), the combined variant significantly outperforms norm-shift-only across all models. For llama3.1-8b: combined HLCC=1.760 / ECE=0.040 vs norm-shift-only HLCC=1.265 / ECE=0.517. The earlier 4-bit NF4 results where norm-shift-only appeared better were likely an artifact of quantization noise.
 
 ### What the norm-shift signal means at each layer
 
@@ -795,31 +796,55 @@ The norm-shift signal captures this without any model modification — just `out
 
 ## Llama 3.1-8B Results Summary
 
+### FP16 Retraining (Feb 18-19, 2026)
+
+| Experiment | ECE | HLCC Score | Accuracy | Confidence | Key Finding |
+|-----------|-----|-----------|----------|------------|-------------|
+| **NormShift combined (FP16)** | **0.040** | **+1.760** | 92.0% | 0.960 | Best overall — 75% ECE improvement over 4-bit |
+| NormShift only (FP16) | 0.517 | +1.265 | 92.0% | 0.403 | Combined variant clearly superior |
+
+### Earlier Results (4-bit NF4, Feb 1, 2026)
+
 | Experiment | ECE | HLCC Score | Key Finding | Source |
 |-----------|-----|-----------|-------------|--------|
 | Baseline (no head) | 0.161 | +0.253 | Underconfident (18% conf on 28% acc) | [`extended_training_...json`](../data/results/extended_training_llama3.1-8b_20260201_074958.json) |
-| Trained confidence head | **0.075** | +0.277 | 53% ECE improvement, calibration corrected | [`best_confidence_head.pt`](../data/checkpoints/llama3.1-8b_extended/best_confidence_head.pt) |
-| Norm-shift vs all baselines | **0.105** | **+0.558** | Best ECE, best HLCC, best AUROC (0.870) | [`calibration_...json`](../data/results/calibration_llama3.1-8b_20260201_080919.json) |
-| QLoRA + HLCC loss | **0.111** | **+0.893** | Beats CE on all metrics after fine-tuning | [`llama3.1-8b_hlcc_...json`](../data/results/llama3.1-8b_hlcc_20260201_104929.json) |
+| Trained confidence head | 0.075 | +0.277 | 53% ECE improvement, calibration corrected | [`best_confidence_head.pt`](../data/checkpoints/llama3.1-8b_extended/best_confidence_head.pt) |
+| Norm-shift vs all baselines | 0.105 | +0.558 | Best ECE, best HLCC, best AUROC (0.870) | [`calibration_...json`](../data/results/calibration_llama3.1-8b_20260201_080919.json) |
+| QLoRA + HLCC loss | 0.111 | +0.893 | Beats CE on all metrics after fine-tuning | [`llama3.1-8b_hlcc_...json`](../data/results/llama3.1-8b_hlcc_20260201_104929.json) |
 | QLoRA + CE loss | 0.129 | +0.817 | Standard cross-entropy baseline | [`llama3.1-8b_ce_...json`](../data/results/llama3.1-8b_ce_20260201_080920.json) |
+
+### Cross-Model Comparison (FP16/8-bit retraining, all 5 models)
+
+| Model | Variant | HLCC | ECE | Accuracy | Confidence |
+|-------|---------|------|-----|----------|------------|
+| **llama3.1-8b** | combined | **1.760** | **0.040** | 92.0% | 0.960 |
+| qwen2.5-14b | combined | 1.657 | 0.072 | 89.0% | 0.927 |
+| **mistral-7b** | combined | 1.039 | **0.020** | 53.0% | 0.510 |
+| deepseek-r1-14b | combined | 0.781 | 0.108 | 48.0% | 0.501 |
+| qwen2.5-7b | combined | 0.540 | 0.060 | 32.0% | 0.340 |
+
+**Key findings from FP16 retraining:**
+- Combined variant outperforms norm_shift_only on both ECE and HLCC across all 5 models
+- Best ECE: 0.020 (mistral-7b) — near-perfect calibration
+- Best HLCC: 1.760 (llama3.1-8b) — highest confidence-weighted score
+- DeepSeek-R1-14B norm-shift-only essentially fails to train (HLCC=0.038)
 
 The interlayer norm-shift signal provides information that **no output-level method can access** — the internal processing dynamics of the model. This is why it consistently outperforms entropy, top-k, temperature scaling, verbalized confidence, and self-consistency on calibration metrics.
 
 ## Hardware & Timing
 
-> Timing data from [`data/logs/multiday_20260201_052011.log`](../data/logs/multiday_20260201_052011.log).
+> Timing data from [`data/logs/multiday_20260201_052011.log`](../data/logs/multiday_20260201_052011.log) and pipeline run Feb 18-19.
 
 All experiments run on NVIDIA RTX PRO 4500 Blackwell (32 GB VRAM):
 
 | Stage | Time | VRAM |
 |-------|------|------|
-| Model download | 0.06 hr (204s) | — |
-| Model load (4-bit NF4) | ~42s | 5.7 GB |
-| Baseline evaluation | 0.02 hr (86s) | 5.7 GB |
-| NormShift combined training (25 epochs) | 0.83 hr (2996s) | 6.4 GB avg, GPU 96% |
-| NormShift only training (25 epochs) | 0.83 hr (2994s) | 6.4 GB avg |
-| Head training (extended, 25 epochs) | 0.75 hr (2706s) | 6.4 GB avg |
-| Calibration baselines (300 examples, 6 methods) | 0.32 hr (1162s) | 5.7-7.1 GB |
-| QLoRA fine-tuning (15 epochs, 2500 examples) | 4.82 hrs (17338s) | 8.8 GB avg, GPU 82% |
-| Chat server (per-token generation) | ~80ms/token | 6.2 GB |
-| **Total experiment pipeline** | **7.64 hrs** (27,487s) | |
+| Model load (FP16, 8B) | ~35s | 14.5 GB |
+| Model load (4-bit NF4, 8B) | ~42s | 5.7 GB |
+| NormShift combined training (25 epochs, FP16) | ~50 min | 14.5 GB |
+| NormShift only training (25 epochs, FP16) | ~50 min | 14.5 GB |
+| Layer signal extraction (90 examples) | ~5 min | 14.5 GB |
+| Calibration baselines (300 examples, 14 methods) | ~45 min | 14.5 GB |
+| QLoRA fine-tuning (15 epochs, 2500 examples) | 4.82 hrs | 8.8 GB avg |
+| Chat server (per-token generation) | ~80ms/token | 14.5 GB |
+| **Full 5-model FP16 pipeline** | **~4.5 hrs** | |

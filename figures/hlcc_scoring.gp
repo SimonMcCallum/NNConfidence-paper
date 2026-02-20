@@ -5,6 +5,8 @@
 set terminal cairolatex pdf color colortext size 4.5in,3.2in
 set output 'hlcc_scoring.tex'
 
+set object 2 rect from screen 0,0 to screen 1,1 behind fillcolor rgb "white" fillstyle solid noborder
+
 set xlabel '$c$ (Stated Confidence)'
 set ylabel 'Score $S(c)$'
 

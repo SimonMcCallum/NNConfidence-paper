@@ -10,6 +10,8 @@ set terminal epslatex size 5in,3in color colortext standalone \
     header '\usepackage{amsmath}'
 set output 'docs/figures/output/layer_stds.tex'
 
+set object 1 rect from screen 0,0 to screen 1,1 behind fillcolor rgb "white" fillstyle solid noborder
+
 set title 'Hidden State $\mathrm{std}(\mathbf{h}^{[i]})$ by Layer --- Llama-3.1-8B' font ",12"
 set xlabel 'Transformer Layer' font ",11"
 set ylabel '$\mathrm{std}(\mathbf{h}^{[i]}, \mathrm{dim}=-1)$' font ",11"

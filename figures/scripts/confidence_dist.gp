@@ -9,6 +9,8 @@ set terminal epslatex size 5in,3in color colortext standalone \
     header '\usepackage{amsmath}'
 set output 'docs/figures/output/confidence_dist.tex'
 
+set object 1 rect from screen 0,0 to screen 1,1 behind fillcolor rgb "white" fillstyle solid noborder
+
 set title 'Confidence Distribution: Correct vs Incorrect (Norm-Shift Head)' font ",12"
 set xlabel 'Confidence Score' font ",11"
 set ylabel 'Count' font ",11"

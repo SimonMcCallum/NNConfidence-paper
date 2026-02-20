@@ -13,6 +13,8 @@ set terminal epslatex size 7in,9in color colortext standalone \
     header '\usepackage{amsmath}\usepackage{lmodern}'
 set output 'docs/figures/output/layer27_vs_31.tex'
 
+set object 3 rect from screen 0,0 to screen 1,1 behind fillcolor rgb "white" fillstyle solid noborder
+
 set multiplot layout 3,1 margins 0.12,0.95,0.06,0.96 spacing 0.0,0.08
 
 # ── Panel 1: Density histograms (top) ────────────────────────────────────────

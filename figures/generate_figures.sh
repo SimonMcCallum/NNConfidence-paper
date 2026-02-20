@@ -13,7 +13,7 @@
 #   4. pdflatex compiles .tex → .pdf
 #
 # Data provenance:
-#   - Model:      meta-llama/Llama-3.1-8B-Instruct (4-bit quantized)
+#   - Model:      meta-llama/Llama-3.1-8B-Instruct (FP16 precision)
 #   - Checkpoint:  data/checkpoints/llama3.1-8b_norm_shift/best_norm_shift_combined.pt
 #   - Datasets:    truthfulqa (30 ex), arc-easy (30 ex), arc-challenge (30 ex)
 #   - Signals:     data/results/llama8b_norm_shift_signals.json
@@ -55,7 +55,7 @@ if [[ "$SKIP_EXTRACT" == false ]]; then
     echo ""
     echo "── Step 1: Extracting norm-shift signals ──"
     echo "  Script:     extract_norm_signals.py"
-    echo "  Model:      meta-llama/Llama-3.1-8B-Instruct (4-bit)"
+    echo "  Model:      meta-llama/Llama-3.1-8B-Instruct (FP16)"
     echo "  Checkpoint: data/checkpoints/llama3.1-8b_norm_shift/best_norm_shift_combined.pt"
     echo "  Datasets:   truthfulqa + arc-easy + arc-challenge (30 each)"
     echo ""

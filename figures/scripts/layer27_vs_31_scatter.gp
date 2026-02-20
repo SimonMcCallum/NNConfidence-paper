@@ -13,6 +13,8 @@ set terminal epslatex size 5.5in,4.5in color colortext standalone \
     header '\usepackage{amsmath}\usepackage{lmodern}'
 set output 'docs/figures/output/layer27_vs_31_scatter.tex'
 
+set object 1 rect from screen 0,0 to screen 1,1 behind fillcolor rgb "white" fillstyle solid noborder
+
 set title '\textbf{Confidence Head: Layer 27 vs Layer 31 Norm-Shift Separation}' font ",12"
 set xlabel 'Norm-shift $s_{27} = 1 - \mathrm{std}(\mathbf{h}^{[27]})$' font ",11"
 set ylabel 'Norm-shift $s_{31} = 1 - \mathrm{std}(\mathbf{h}^{[31]})$' font ",11"

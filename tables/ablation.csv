@@ -1,0 +1,11 @@
+model,displayname,precision,variant,epoch,accuracy,meanconf,calgap,ece,brier,hlcc
+mistral-7b,Mistral-7B,FP16,combined,21,0.53,0.510,0.020,0.020,0.020,1.039
+mistral-7b,Mistral-7B,FP16,norm_shift_only,0,0.53,0.584,0.054,0.054,0.252,0.519
+qwen2.5-7b,Qwen2.5-7B,FP16,combined,19,0.32,0.340,0.020,0.060,0.060,0.540
+qwen2.5-7b,Qwen2.5-7B,FP16,norm_shift_only,20,0.32,0.187,0.133,0.133,0.236,0.332
+llama3.1-8b,Llama-3.1-8B,FP16,combined,22,0.92,0.960,0.040,0.040,0.040,1.760
+llama3.1-8b,Llama-3.1-8B,FP16,norm_shift_only,0,0.92,0.403,0.517,0.517,0.341,1.265
+qwen2.5-14b,Qwen2.5-14B,8-bit,combined,23,0.89,0.927,0.037,0.072,0.063,1.657
+qwen2.5-14b,Qwen2.5-14B,8-bit,norm_shift_only,20,0.89,0.726,0.164,0.164,0.138,1.429
+deepseek-r1-14b,DeepSeek-R1-14B,8-bit,combined,22,0.48,0.501,0.021,0.108,0.105,0.781
+deepseek-r1-14b,DeepSeek-R1-14B,8-bit,norm_shift_only,0,0.48,0.922,0.442,0.442,0.445,0.038

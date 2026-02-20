@@ -30,6 +30,9 @@ try:
     matplotlib.use('Agg')
     import matplotlib.pyplot as plt
     from matplotlib.gridspec import GridSpec
+    plt.rcParams['figure.facecolor'] = 'white'
+    plt.rcParams['axes.facecolor'] = 'white'
+    plt.rcParams['savefig.facecolor'] = 'white'
     HAS_MPL = True
 except ImportError:
     HAS_MPL = False
@@ -111,8 +114,9 @@ def generate_matplotlib_figure(d):
     gap_l27 = c_l27.mean() - i_l27.mean()
     gap_l31 = c_l31.mean() - i_l31.mean()
 
-    # Create figure
-    fig = plt.figure(figsize=(8, 11))
+    # Create figure with explicit white background
+    fig = plt.figure(figsize=(8, 11), facecolor='white')
+    fig.patch.set_facecolor('white')
     gs = GridSpec(3, 1, height_ratios=[1, 1.2, 1], hspace=0.35)
 
     # Colors
@@ -123,6 +127,7 @@ def generate_matplotlib_figure(d):
 
     # ── Panel 1: Density histograms ──────────────────────────────────────
     ax1 = fig.add_subplot(gs[0])
+    ax1.set_facecolor('white')
     ax1.set_title("Norm-Shift Distribution: Layer 27 vs Layer 31", fontsize=12, fontweight="bold")
 
     bins_l27 = np.linspace(0.59, 0.68, 20)
@@ -159,6 +164,7 @@ def generate_matplotlib_figure(d):
 
     # ── Panel 2: Scatter plot L27 vs L31 ─────────────────────────────────
     ax2 = fig.add_subplot(gs[1])
+    ax2.set_facecolor('white')
     ax2.set_title("Per-Example Norm-Shift: Layer 27 vs Layer 31", fontsize=12, fontweight="bold")
 
     ax2.scatter(c_l27, c_l31, c=GREEN, s=40, alpha=0.7, edgecolors="white",
@@ -193,6 +199,7 @@ def generate_matplotlib_figure(d):
 
     # ── Panel 3: Zoomed layer progression 25-32 ─────────────────────────
     ax3 = fig.add_subplot(gs[2])
+    ax3.set_facecolor('white')
     ax3.set_title("Separation Widening: Layers 25-32", fontsize=12, fontweight="bold")
 
     layers = np.arange(25, 33)  # layers 25-32
@@ -240,7 +247,7 @@ def generate_matplotlib_figure(d):
 
     # ── Save ─────────────────────────────────────────────────────────────
     output_path = os.path.join(OUTPUT_DIR, "layer27_vs_31.pdf")
-    fig.savefig(output_path, dpi=300, bbox_inches="tight")
+    fig.savefig(output_path, dpi=300, bbox_inches="tight", facecolor='white', edgecolor='none')
     print(f"  Saved: {output_path}")
 
     plt.close(fig)

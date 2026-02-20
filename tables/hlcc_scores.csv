@@ -1,0 +1,8 @@
+method,displayname,mistralhlcc,qwenhlcc,llamahlcc,qwenLhlcc
+entropy,Entropy,0.105,0.125,-0.211,0.600
+topk,Top-k,0.060,0.050,-0.314,0.549
+msp,MSP,0.214,0.340,0.144,0.694
+verbalized,Verbalized,-0.075,0.399,-0.198,0.731
+self_consistency,Self-consistency,-0.254,0.825,0.440,---
+temperature_scaling,Temp.\ scaling,-0.090,0.009,-0.333,---
+hlcc_norm_shift,NormShift,0.884,0.460,0.324,---

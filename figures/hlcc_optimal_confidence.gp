@@ -5,6 +5,8 @@
 set terminal cairolatex pdf color colortext size 5in,4in
 set output 'hlcc_optimal_confidence.tex'
 
+set object 1 rect from screen 0,0 to screen 1,1 behind fillcolor rgb "white" fillstyle solid noborder
+
 set xrange [0:1]
 set yrange [0:1]
 
