@@ -57,11 +57,11 @@ with a quadratic penalty for confident errors.  Unlike proper scoring
 rules such as the Brier score or log-loss, where the optimal confidence
 equals the true accuracy ($\cstar = p$), \hlcc{} induces a conservative
 mapping $\cstar = p/[4(1-p)]$ that naturally suppresses overconfidence
-below 80\% accuracy.  We implement \hlcc{} as a trainable objective for
+below the crossover point at $p = 0.75$.  We implement \hlcc{} as a trainable objective for
 language-model confidence heads, proposing a dual-path
 \emph{NormShift} architecture that routes per-layer normalisation
 dynamics alongside final hidden states to estimate per-token confidence.
-We benchmark against 11 baseline confidence methods (including maximum
+We benchmark against 13 baseline confidence methods (including maximum
 softmax probability, entropy, self-consistency, semantic entropy,
 chain-of-thought verbalisation, temperature scaling, isotonic
 regression, and Platt scaling) across 9 datasets and 9 model scales
@@ -93,11 +93,12 @@ this mathematical elegance creates a symmetric treatment of over- and
 under-confidence that may be inappropriate when the costs of confident
 errors far exceed the costs of cautious under-reporting.
 
-In confidence-based marking (CBM) for educational
-assessment~\cite{gardnermedwin1995}, the asymmetry between ``confident
-and wrong'' versus ``cautious and right'' is encoded through discrete
-penalty scales.  Inspired by this asymmetry, we propose the Hybrid
-Linear-Convex Confidence (\hlcc{}) scoring function:
+In certainty-based marking (CBM) for educational
+assessment~\cite{gardnermedwin1995,gardnermedwin2006}, the asymmetry
+between ``confident and wrong'' versus ``cautious and right'' is encoded
+through discrete penalty scales derived from logarithmic proper scoring
+rules~\cite{good1952}.  Inspired by this asymmetry, we propose the
+Hybrid Linear-Convex Confidence (\hlcc{}) scoring function:
 \begin{equation}
   S(y, c) =
   \begin{cases}
@@ -195,6 +196,24 @@ weakly dominant over abstention.
   Setting $\cstar = p$: $p = p/[4(1-p)]$ implies $4(1-p) = 1$, hence
   $p = 3/4$.  The saturation point solves $p/[4(1-p)] = 1$, giving
   $p = 4/5$.
+\end{proof}
+
+\begin{proposition}[Theoretical Maximum HLCC]
+\label{prop:max-hlcc}
+  For a model with accuracy $p$, the maximum achievable HLCC score is
+  $S_{\max} = 2p$, attained when $c = 1$ for every correct prediction
+  and $c = 0$ for every incorrect prediction.  The \emph{HLCC efficiency}
+  $\eta = S_{\text{HLCC}} / (2p)$ measures how well the confidence method
+  exploits the model's accuracy, with $\eta = 1$ indicating perfect
+  self-knowledge.
+\end{proposition}
+
+\begin{proof}
+  With perfect self-knowledge, each correct prediction ($p$ fraction)
+  scores $S(1, 1) = 1 + 1 = 2$, and each incorrect prediction
+  ($1 - p$ fraction) scores $S(0, 0) = 0$.  The expected score is
+  $p \cdot 2 + (1-p) \cdot 0 = 2p$.  No other confidence assignment
+  achieves a higher expected score, since $R(c) \leq 2$ and $P(c) \leq 0$.
 \end{proof}
 
 \Cref{tab:rational-confidence} shows the optimal confidence mapping at
@@ -402,8 +421,9 @@ dataset.  BoolQ maps directly to 2-choice MCQ.
 
 \subsection{Confidence Methods}
 
-We evaluate 12 confidence estimation methods organised in three tiers by
-computational cost.
+We evaluate 14 confidence estimation methods (13 baselines plus our
+NormShift head) organised in three tiers by computational cost, plus
+two combination methods.
 
 \paragraph{Tier 1: Single Forward Pass.}
 These methods extract confidence from a single model forward pass and
@@ -510,6 +530,15 @@ examples?
   \item \textbf{HLCC Score}: Mean score under
         \Cref{eq:hlcc-scoring}, measuring confidence-weighted
         performance.
+  \item \textbf{Theoretical Max HLCC}: The maximum achievable HLCC
+        score for a model with accuracy $p$ is $S_{\max} = 2p$,
+        attained when the model reports $c = 1$ on every correct
+        prediction and $c = 0$ on every incorrect prediction (perfect
+        knowledge of its own correctness).
+  \item \textbf{HLCC Efficiency}: The ratio of actual to theoretical
+        maximum HLCC, $\eta = S_{\text{HLCC}} / (2p)$, measuring how
+        well the confidence method utilises the model's accuracy.
+        A value of $\eta = 1$ indicates perfect self-knowledge.
   \item \textbf{Calibration Gap}: $|\bar{c} - \text{accuracy}|$, the
         absolute difference between mean confidence and overall accuracy.
   \item \textbf{CBM Score}: Score under the discrete CBM scheme for
@@ -764,6 +793,48 @@ signal must be calibrated to the data distribution.  By contrast,
 logit-based methods generalise well because they exploit the model's
 own output distribution, which adapts implicitly to each dataset.
 
+\paragraph{50/50 Split Evaluation.}
+To obtain a cleaner separation of in-domain and OOD performance, we
+train on 50\% of three datasets (ARC-Easy, TruthfulQA, ARC-Challenge,
+150 examples each) and test on the held-out 50\% plus five unseen
+datasets (\Cref{tab:cross-dataset-mistral-7b,tab:cross-dataset-qwen25-7b}).
+
+Mistral-7B shows the strongest pattern: NormShift achieves AUROC 0.978
+on held-out TruthfulQA ($+$0.215 over MSP), 0.930 on ARC-Easy
+($+$0.033), and 0.919 on ARC-Challenge ($+$0.126).  The corresponding
+HLCC scores are also higher than both baselines across all three
+in-domain datasets (e.g., TruthfulQA: 1.125 vs.\ MSP 0.186).  On OOD
+datasets, Mistral-7B NormShift is competitive on CommonsenseQA and MMLU
+but loses to MSP on OpenBookQA, SciQ, and HellaSwag, with AUROC gaps
+of $-0.05$ to $-0.15$.
+
+Qwen2.5-7B tells a different story: NormShift wins on TruthfulQA
+(AUROC 0.706 vs.\ MSP 0.620) but loses to MSP on the other two
+in-domain datasets (ARC-Easy: 0.716 vs.\ 0.887; ARC-Challenge: 0.636
+vs.\ 0.892).  On OOD data the gap widens further, with NormShift
+lagging MSP by 0.15--0.33 AUROC across all five datasets.  This
+contrast suggests that the norm-shift signal's discriminative power is
+architecture-dependent, with Mistral-7B's normalisation dynamics
+providing a stronger basis for confidence estimation.
+
+\paragraph{Confidence-Gated Retry.}
+When NormShift confidence falls below 0.4, we re-evaluate with a
+trick-question system prompt.  The results are strikingly
+model-dependent.  On Mistral-7B, the retry mechanism achieves a 32\%
+rescue rate on TruthfulQA (25 of 78 retried questions corrected, zero
+damage), producing a net accuracy gain from 0.453 to 0.620.  On
+ARC-Challenge, 3 rescues against 1 damage yields a small net positive.
+On OOD datasets, retries are mostly neutral for Mistral-7B (small
+rescue and damage counts largely cancel out).
+
+On Qwen2.5-7B, the retry mechanism is harmful: damage rates range from
+12.5\% (TruthfulQA) to 34.7\% (OpenBookQA), with rescue rates below
+4\% on most datasets.  The high retry rate (43--59\% of questions
+retried on OOD data) suggests that the confidence threshold is too
+aggressive for this model.  These results indicate that confidence-gated
+retry is a promising technique when calibrated to a specific model, but
+requires per-model threshold tuning.
+
 \subsection{NormShift Ablation}
 \label{sec:ablation}
 
@@ -777,35 +848,51 @@ scores across all five primary models.
 \caption{Ablation: Combined vs.\ Norm-Shift-Only confidence heads.
          Both variants trained for 25 epochs on ARC-Easy + TruthfulQA +
          ARC-Challenge (900 examples), validated on TruthfulQA (100 examples).
-         Results use FP16 (7--8B models) or 8-bit (14B models).}
+         Results use FP16 (7--8B models) or 8-bit (14B models).
+         Max HLCC\,=\,$2p$ is the theoretical maximum for a model with
+         perfect self-knowledge; $\eta$\,=\,HLCC\,/\,Max HLCC is the
+         efficiency.}
 \label{tab:ablation}
-\begin{tabular}{@{}lcccc@{}}
+\small
+\begin{tabular}{@{}lccccccccc@{}}
 \toprule
- & \multicolumn{2}{c}{Combined} & \multicolumn{2}{c}{Norm-Shift Only} \\
-\cmidrule(lr){2-3} \cmidrule(lr){4-5}
-Model & ECE $\downarrow$ & HLCC $\uparrow$ & ECE $\downarrow$ & HLCC $\uparrow$ \\
+ & & & \multicolumn{3}{c}{Combined} & \multicolumn{3}{c}{Norm-Shift Only} \\
+\cmidrule(lr){4-6} \cmidrule(lr){7-9}
+Model & Acc & Max HLCC & ECE $\downarrow$ & HLCC $\uparrow$ & $\eta$ & ECE $\downarrow$ & HLCC $\uparrow$ & $\eta$ \\
 \midrule
-Mistral-7B       & \textbf{\mistralCombinedECE} & \textbf{\mistralCombinedHLCC} & \mistralNSOECE & \mistralNSOHLCC \\
-Qwen2.5-7B       & \textbf{\qwenCombinedECE} & \textbf{\qwenCombinedHLCC} & \qwenNSOECE & \qwenNSOHLCC \\
-Llama-3.1-8B     & \textbf{\llamaCombinedECE} & \textbf{\llamaCombinedHLCC} & \llamaNSOECE & \llamaNSOHLCC \\
-Qwen2.5-14B      & \textbf{\qwenLCombinedECE} & \textbf{\qwenLCombinedHLCC} & \qwenLNSOECE & \qwenLNSOHLCC \\
-DeepSeek-R1-14B  & \textbf{\deepseekCombinedECE} & \textbf{\deepseekCombinedHLCC} & \deepseekNSOECE & \deepseekNSOHLCC \\
+Mistral-7B       & 0.53 & 1.060 & \textbf{\mistralCombinedECE} & \textbf{\mistralCombinedHLCC} & 98.0\% & \mistralNSOECE & \mistralNSOHLCC & 49.0\% \\
+Qwen2.5-7B       & 0.32 & 0.640 & \textbf{\qwenCombinedECE} & \textbf{\qwenCombinedHLCC} & 84.4\% & \qwenNSOECE & \qwenNSOHLCC & 51.9\% \\
+Llama-3.1-8B     & 0.92 & 1.840 & \textbf{\llamaCombinedECE} & \textbf{\llamaCombinedHLCC} & 95.7\% & \llamaNSOECE & \llamaNSOHLCC & 68.8\% \\
+Qwen2.5-14B      & 0.89 & 1.780 & \textbf{\qwenLCombinedECE} & \textbf{\qwenLCombinedHLCC} & 93.1\% & \qwenLNSOECE & \qwenLNSOHLCC & 80.3\% \\
+DeepSeek-R1-14B  & 0.48 & 0.960 & \textbf{\deepseekCombinedECE} & \textbf{\deepseekCombinedHLCC} & 81.4\% & \deepseekNSOECE & \deepseekNSOHLCC & 4.0\% \\
 \bottomrule
 \end{tabular}
 \end{table}
 
 The combined architecture outperforms norm-shift-only on both ECE and
-HLCC across all five models, often by a large margin.  The gap is most
+HLCC across all five models, often by a large margin.  The HLCC
+efficiency metric $\eta$ contextualises raw scores by the model's
+accuracy: Llama-3.1-8B has the highest raw HLCC (\llamaCombinedHLCC{})
+but this is largely driven by its high accuracy (92\%), giving
+$\eta = 95.7\%$.  Mistral-7B, despite its lower accuracy (53\%),
+achieves the highest efficiency ($\eta = 98.0\%$), meaning its
+confidence head captures nearly all of the model's available
+discriminative information.
+
+The gap between combined and norm-shift-only is most
 dramatic for DeepSeek-R1-14B, where the norm-shift-only variant
-essentially fails to train (HLCC\,=\,\deepseekNSOHLCC{} vs.\ \deepseekCombinedHLCC{} for combined),
-and for Llama-3.1-8B, where norm-shift-only reaches an ECE of \llamaNSOECE{}
-compared to \llamaCombinedECE{} for combined.  These results confirm that the
-hidden-state path provides information that the norm-shift signal alone
-cannot reliably capture, particularly for architectures where the
-normalisation dynamics are weaker or less consistent across layers.
-Qwen2.5-14B is the model where the two variants are closest (ECE \qwenLCombinedECE{}
-vs.\ \qwenLNSOECE{}), consistent with its strong layer-level separation signals
-(\Cref{tab:layer-signals}).
+essentially fails to train ($\eta = 4.0\%$ vs.\ $81.4\%$ for combined),
+and for Llama-3.1-8B ($\eta = 68.8\%$ vs.\ $95.7\%$).  These results
+confirm that the hidden-state path provides information that the
+norm-shift signal alone cannot reliably capture.
+Qwen2.5-14B is the model where the two variants are closest in HLCC
+(\qwenLCombinedHLCC{} vs.\ \qwenLNSOHLCC{}, $\eta = 93.1\%$ vs.\
+$80.3\%$), consistent with its strong layer-level separation signals
+(\Cref{tab:layer-signals}).  Mistral-7B has the smallest ECE gap
+(\mistralCombinedECE{} vs.\ \mistralNSOECE{}), but the largest
+efficiency gap ($98.0\%$ vs.\ $49.0\%$), indicating that while both
+variants are well-calibrated, the combined variant is far better at
+assigning high confidence to correct answers.
 
 \subsection{Per-Layer Signal Analysis}
 \label{sec:layer-analysis}
@@ -1151,10 +1238,28 @@ LM-Polygraph framework~\cite{fadeeva2024lmpolygraph} as a standard
 metric for uncertainty benchmarking.
 
 \paragraph{Confidence-Based Marking.}
-\citet{gardnermedwin1995} introduced the CBM scheme for educational
-assessment.  \citet{budescu2012optimal} studied optimal scoring rules
-for confidence-weighted testing, analysing the tradeoff between strict
-propriety and behavioural desiderata such as participation incentives.
+\citet{gardnermedwin1995} introduced Certainty-Based Marking (CBM) for
+educational assessment, where students declare confidence on a
+three-level scale: $C{=}1$ (low), $C{=}2$ (mid), $C{=}3$ (high).
+The scoring table awards $+1/0$, $+2/{-}2$, $+3/{-}6$ for
+correct/incorrect at each level, creating a discrete penalty structure
+whose thresholds correspond to proper scoring boundaries at $p = 2/3$
+and $p = 4/5$~\cite{gardnermedwin2006}.  This scheme is a discretised
+form of a logarithmic proper scoring rule~\cite{good1952,dawid1986},
+where the penalty for confident errors grows faster than the reward for
+confident correctness.  \citet{gardnermedwin2003} demonstrated that CBM
+improves learning engagement in computer-assisted assessment, and
+\citet{gardnermedwin2019} provided evidence that certainty-based marking
+stimulates deeper thinking in objective tests.
+\hlcc{} can be viewed as a continuous generalisation of CBM: where CBM
+discretises confidence into three levels, \hlcc{} allows any $c \in [0,1]$
+while preserving the asymmetric penalty structure.  The CBM boundary at
+$p = 4/5$ (above which maximum confidence is optimal) corresponds to
+the \hlcc{} saturation point $\cstar = 1$ at $p = 0.8$
+(\Cref{cor:crossover}).  \citet{budescu2012optimal} studied optimal
+scoring rules for confidence-weighted testing, analysing the tradeoff
+between strict propriety and behavioural desiderata such as participation
+incentives.
 
 
 % ============================================================
@@ -1168,46 +1273,73 @@ estimates in language models.  Across five primary models spanning 7B to
 14B parameters, our key findings are:
 
 \begin{enumerate}[nosep]
-  \item \textbf{In-domain dominance.}  When trained on the target
-        distribution, NormShift achieves AUROC\,=\,0.752 and
-        PRR\,=\,0.484 on TruthfulQA (Qwen2.5-7B), surpassing all
-        logit-based methods while requiring only a single forward pass
-        through $\sim$500K additional parameters.
+  \item \textbf{In-domain dominance on Mistral-7B.}  When trained on the
+        target distribution, NormShift achieves near-perfect
+        discrimination on Mistral-7B (AUROC\,=\,\mistralNormShiftAUROC{},
+        PRR\,=\,\mistralNormShiftPRR{} on TruthfulQA) while requiring
+        only a single forward pass through $\sim$500K additional
+        parameters.  The 50/50 split cross-dataset evaluation
+        (\Cref{tab:cross-dataset-mistral-7b}) confirms this: Mistral-7B
+        NormShift achieves AUROC\,=\,0.978 on held-out TruthfulQA,
+        0.930 on ARC-Easy, and 0.919 on ARC-Challenge, surpassing MSP
+        on all three in-domain datasets.  This is the strongest
+        in-domain result among the models we tested.
+  \item \textbf{Effective confidence-gated retry on Mistral-7B.}  When
+        NormShift confidence falls below 0.4, re-evaluating with a
+        trick-question prompt rescues 25 of 78 low-confidence questions
+        on TruthfulQA (32\% rescue rate) with zero damage.  This
+        demonstrates that NormShift can reliably identify questions worth
+        retrying.  However, this mechanism is model-dependent:
+        Qwen2.5-7B shows high damage rates (up to 35\% on OpenBookQA),
+        indicating that the retry strategy requires per-model tuning.
   \item \textbf{Strong calibration at scale.}  The combined NormShift
         head achieves ECE\,=\,\mistralCombinedECE{} on Mistral-7B and ECE\,=\,\llamaCombinedECE{}
-        on Llama-3.1-8B at FP16 precision, demonstrating that the
-        norm-shift signal can drive well-calibrated confidence estimates
-        across different architectures and scales up to 14B parameters.
+        on Llama-3.1-8B at FP16 precision.  Llama-3.1-8B achieves the
+        highest HLCC score (\llamaCombinedHLCC{}) driven by its high
+        accuracy on the training distribution.
   \item \textbf{Architecture sensitivity.}  Performance varies
-        substantially across models.  Llama-3.1-8B achieves the highest
-        HLCC score (\llamaCombinedHLCC{}) driven by high accuracy, while
-        DeepSeek-R1-14B shows weaker calibration (ECE\,=\,\deepseekCombinedECE{})
-        despite identical parameter count to Qwen2.5-14B
-        (ECE\,=\,\qwenLCombinedECE{}).  The norm-shift-only ablation highlights this
-        further: DeepSeek essentially fails to train (HLCC\,=\,\deepseekNSOHLCC{})
-        while Qwen2.5-14B reaches \qwenLNSOHLCC{}.
+        substantially across models and the strong Mistral-7B results
+        do not generalise to all architectures.  On Qwen2.5-7B and
+        Llama-3.1-8B, NormShift is outperformed by multi-pass baselines
+        (self-consistency, semantic entropy) and even by MSP in
+        cross-dataset evaluation.  DeepSeek-R1-14B shows weaker
+        calibration (ECE\,=\,\deepseekCombinedECE{}) despite identical
+        parameter count to Qwen2.5-14B (ECE\,=\,\qwenLCombinedECE{}).
+        The norm-shift-only ablation highlights this further: DeepSeek
+        essentially fails to train
+        (HLCC\,=\,\deepseekNSOHLCC{}) while Qwen2.5-14B reaches \qwenLNSOHLCC{}.
   \item \textbf{Limited transfer.}  Cross-dataset evaluation reveals
-        that NormShift degrades on out-of-distribution data
-        ($\Delta$AUROC\,$= -0.26$ to $-0.32$), motivating future work
-        on domain-agnostic norm-shift features.
+        that NormShift degrades on out-of-distribution data.  On
+        Mistral-7B, $\Delta$AUROC ranges from $-0.03$ (SciQ) to
+        $-0.15$ (HellaSwag) on OOD datasets, with MMLU being the one
+        exception where NormShift narrowly leads ($+0.01$).  On
+        Qwen2.5-7B the degradation is more severe ($\Delta$AUROC
+        $= -0.15$ to $-0.33$), and NormShift loses to MSP on all OOD
+        datasets.  Logit-based methods generalise better because they
+        exploit the model's own output distribution.
   \item \textbf{Conservative bias as design choice.}  The \hlcc{}
         scoring function induces a conservative confidence mapping
         ($\cstar < p$ for $p < 0.75$), which heavily penalises
-        overconfident errors.  This makes NormShift the only single-pass
-        method achieving positive HLCC scores on models where logit-based
-        methods score negative due to overconfidence.
+        overconfident errors.  On models where entropy and top-$k$
+        produce negative HLCC scores due to overconfidence (e.g.,
+        Llama-3.1-8B: entropy $-0.211$, top-$k$ $-0.314$), NormShift
+        still achieves a positive score (0.324), though MSP (0.144)
+        also remains positive on this model.
 \end{enumerate}
 
 The theoretical analysis confirms that \hlcc{} departs from strict
 propriety in favour of asymmetric risk: rewarding correct confidence
-linearly while penalising incorrect confidence quadratically.  We
-provide an interactive confidence visualisation tool that colours
+linearly while penalising incorrect confidence quadratically.
+
+The strongest practical result is Mistral-7B, where NormShift serves
+as both a high-quality confidence estimator and an effective retry gate
+for the target distribution.  For other architectures and for
+out-of-distribution inputs, logit-based methods (particularly MSP and
+entropy) remain more reliable, and future work should investigate
+domain-agnostic training strategies for the confidence head.
+We provide an interactive confidence visualisation tool that colours
 generated tokens by their confidence level, enabling real-time
-inspection of model certainty during inference.  Our LM-Polygraph
-integration enables direct comparison with the broader uncertainty
-estimation literature, and the benchmarking framework provides a
-systematic evaluation methodology for future confidence estimation
-research.
+inspection of model certainty during inference.
 
 
 % ============================================================
@@ -1218,138 +1350,317 @@ research.
 \section{Full Calibration Scores by Method}
 \label{app:calibration-scores}
 
-This appendix reports per-method calibration scores evaluated on
-TruthfulQA (300 examples).  All numbers are read directly from CSV
-files generated by \texttt{generate\_paper\_tables.py}; no values are
-hard-coded.  Tables are produced for every model whose CSV is present
-in \texttt{docs/tables/}.
+This appendix reports the complete per-method calibration scores
+evaluated on TruthfulQA (300 examples).  These results complement
+the summary comparisons in \Cref{sec:baselines} by providing the
+full metric suite for each method and model.
 
-% -------------------------------------------------------
-% Macro: typeset one model's calibration table from CSV
-% -------------------------------------------------------
-\newcommand{\calibrationtable}[3]{%  #1=model-key  #2=display  #3=precision
-\IfFileExists{tables/calibration_#1.csv}{%
+\subsection{Mistral-7B (FP16)}
+\label{app:calibration-mistral-7b}
+
 \begin{table}[H]
 \centering
-\caption{Calibration scores for #2 on TruthfulQA (300 examples, #3).
-         Data: \texttt{tables/calibration\_#1.csv}.}
-\label{tab:full-calibration-#1}
+\caption{Calibration scores for Mistral-7B on TruthfulQA (300 examples, FP16).}
+\label{tab:full-calibration-mistral-7b}
 \small
 \begin{tabular}{@{}lccccccc@{}}
 \toprule
 Method & Acc & ECE\,$\downarrow$ & Brier\,$\downarrow$ & HLCC\,$\uparrow$
        & AUROC\,$\uparrow$ & AUPRC\,$\uparrow$ & PRR\,$\uparrow$ \\
 \midrule
-\csvreader[
-  head to column names,
-  late after line=\\,
-  late after last line=\\,
-]{tables/calibration_#1.csv}{}{%
-  \displayname & \accuracy & \ece & \brier & \hlcc & \auroc & \auprc & \prr
-}%
+\multicolumn{8}{l}{\emph{Phase 1: Logit-based}} \\
+Entropy                  & .467 & .389 & .393 & .105
+                 & .602 & .531 & .159 \\
+Top-$k$                  & .467 & .428 & .422 & .060
+                 & .602 & .545 & .194 \\
+MSP                      & .467 & .353 & .352 & .214
+                 & .711 & .706 & .513 \\
+GNLL                     & .467 & .353 & .352 & .214
+                 & .711 & .706 & .513 \\
+\midrule
+\multicolumn{8}{l}{\emph{Phase 2: Generation-based}} \\
+Verbalized               & .467 & .502 & .516 & $-$0.075
+                 & .595 & .557 & .222 \\
+Self-consistency         & .290 & .422 & .410 & $-$0.254
+                 & .556 & .338 & .114 \\
+CoT confidence           & .513 & .463 & .449 & .124
+                 & .581 & .601 & .214 \\
+Semantic entropy         & .300 & .328 & .354 & $-$0.076
+                 & .518 & .323 & .054 \\
+LVU                      & .467 & .122 & .287 & .412
+                 & .464 & .453 & $-$0.044 \\
+CoCoA                    & .277 & .506 & .456 & $-$0.385
+                 & .585 & .323 & .115 \\
+\midrule
+\multicolumn{8}{l}{\emph{Phase 2: Post-hoc calibration$^\dagger$}} \\
+Temp.\ scaling           & .467 & .515 & .510 & $-$0.090
+                 & .651 & .641 & .393 \\
+Isotonic$^\dagger$       & .467 & \textbf{.000} & .230 & .485
+                 & .654 & .627 & .368 \\
+Platt$^\dagger$          & .467 & .050 & .243 & .462
+                 & .602 & .531 & .159 \\
+\midrule
+\multicolumn{8}{l}{\emph{Learned: NormShift (combined)$^\ddagger$}} \\
+\textbf{NormShift}$^\ddagger$ & .467 & .030 & \textbf{.025} & \textbf{.884}
+                 & \textbf{.999} & \textbf{.999} & \textbf{.999} \\
 \bottomrule
-\multicolumn{8}{l}{\scriptsize Post-hoc methods (Isotonic, Platt) fit and evaluate on same data.
-  NormShift includes TruthfulQA in training data.}
+\multicolumn{8}{l}{\scriptsize $^\dagger$Post-hoc methods fit and evaluate on the same data.} \\
+\multicolumn{8}{l}{\scriptsize $^\ddagger$NormShift includes TruthfulQA in training data.}
 \end{tabular}
 \end{table}
-}{\textit{(No calibration data for #2.)}}%
-}
-
-% Emit tables for each model
-\subsection{Mistral-7B (FP16)}
-\label{app:calibration-mistral-7b}
-\calibrationtable{mistral-7b}{Mistral-7B}{FP16}
 
 \subsection{Qwen2.5-7B (FP16)}
 \label{app:calibration-qwen2.5-7b}
-\calibrationtable{qwen2.5-7b}{Qwen2.5-7B}{FP16}
+
+\begin{table}[H]
+\centering
+\caption{Calibration scores for Qwen2.5-7B on TruthfulQA (300 examples, FP16).}
+\label{tab:full-calibration-qwen2.5-7b}
+\small
+\begin{tabular}{@{}lccccccc@{}}
+\toprule
+Method & Acc & ECE\,$\downarrow$ & Brier\,$\downarrow$ & HLCC\,$\uparrow$
+       & AUROC\,$\uparrow$ & AUPRC\,$\uparrow$ & PRR\,$\uparrow$ \\
+\midrule
+\multicolumn{8}{l}{\emph{Phase 1: Logit-based}} \\
+Entropy                  & .493 & .449 & .425 & .125
+                 & .899 & .895 & .834 \\
+Top-$k$                  & .493 & .476 & .465 & .050
+                 & .757 & .769 & .601 \\
+MSP                      & .493 & .277 & .310 & .340
+                 & .657 & .589 & .228 \\
+GNLL                     & .493 & .277 & .310 & .340
+                 & .657 & .589 & .228 \\
+\midrule
+\multicolumn{8}{l}{\emph{Phase 2: Generation-based}} \\
+Verbalized               & .493 & .311 & .404 & .399
+                 & .384 & .419 & $-$0.253 \\
+Self-consistency         & .683 & .269 & .268 & \textbf{.825}
+                 & .626 & .754 & .254 \\
+CoT confidence           & .657 & .262 & .277 & .726
+                 & .637 & .752 & .312 \\
+Semantic entropy         & .687 & .261 & .277 & .824
+                 & .602 & .739 & .193 \\
+LVU                      & .493 & .130 & .285 & .518
+                 & .554 & .510 & .037 \\
+CoCoA                    & .677 & .266 & .267 & .801
+                 & .806 & .904 & .726 \\
+\midrule
+\multicolumn{8}{l}{\emph{Phase 2: Post-hoc calibration$^\dagger$}} \\
+Temp.\ scaling           & .493 & .487 & .487 & .009
+                 & .652 & .586 & .235 \\
+Isotonic$^\dagger$       & .493 & \textbf{.000} & \textbf{.119} & .746
+                 & \textbf{.909} & \textbf{.912} & \textbf{.860} \\
+Platt$^\dagger$          & .493 & .037 & .130 & .731
+                 & .899 & .895 & .834 \\
+\midrule
+\multicolumn{8}{l}{\emph{Learned: NormShift (combined)$^\ddagger$}} \\
+\textbf{NormShift}$^\ddagger$ & .493 & .305 & .339 & .460
+                 & .633 & .574 & .211 \\
+\bottomrule
+\multicolumn{8}{l}{\scriptsize $^\dagger$Post-hoc methods fit and evaluate on the same data.} \\
+\multicolumn{8}{l}{\scriptsize $^\ddagger$NormShift includes TruthfulQA in training data.}
+\end{tabular}
+\end{table}
 
 \subsection{Llama-3.1-8B (FP16)}
 \label{app:calibration-llama3.1-8b}
-\calibrationtable{llama3.1-8b}{Llama-3.1-8B}{FP16}
+
+\begin{table}[H]
+\centering
+\caption{Calibration scores for Llama-3.1-8B on TruthfulQA (300 examples, FP16).}
+\label{tab:full-calibration-llama3.1-8b}
+\small
+\begin{tabular}{@{}lccccccc@{}}
+\toprule
+Method & Acc & ECE\,$\downarrow$ & Brier\,$\downarrow$ & HLCC\,$\uparrow$
+       & AUROC\,$\uparrow$ & AUPRC\,$\uparrow$ & PRR\,$\uparrow$ \\
+\midrule
+\multicolumn{8}{l}{\emph{Phase 1: Logit-based}} \\
+Entropy                  & .393 & .524 & .491 & $-$0.211
+                 & .809 & .741 & .653 \\
+Top-$k$                  & .393 & .569 & .548 & $-$0.314
+                 & .746 & .626 & .481 \\
+MSP                      & .393 & .295 & .312 & .144
+                 & .658 & .527 & .302 \\
+GNLL                     & .393 & .295 & .312 & .144
+                 & .658 & .527 & .302 \\
+\midrule
+\multicolumn{8}{l}{\emph{Phase 2: Generation-based}} \\
+Verbalized               & .393 & .421 & .565 & $-$0.198
+                 & .467 & .371 & $-$0.069 \\
+Self-consistency         & .507 & .242 & .279 & .440
+                 & .707 & .716 & .485 \\
+CoT confidence           & .647 & .213 & .261 & \textbf{.744}
+                 & .630 & .741 & .293 \\
+Semantic entropy         & .507 & .205 & .253 & .526
+                 & .691 & .744 & .527 \\
+LVU                      & .393 & .120 & .251 & .314
+                 & .545 & .459 & .143 \\
+CoCoA                    & .523 & .301 & .309 & .393
+                 & .722 & \textbf{.777} & .577 \\
+\midrule
+\multicolumn{8}{l}{\emph{Phase 2: Post-hoc calibration$^\dagger$}} \\
+Temp.\ scaling           & .393 & .566 & .558 & $-$0.333
+                 & .636 & .485 & .217 \\
+Isotonic$^\dagger$       & .393 & \textbf{.000} & \textbf{.161} & .481
+                 & \textbf{.828} & .751 & \textbf{.668} \\
+Platt$^\dagger$          & .393 & .075 & .177 & .469
+                 & .809 & .741 & .653 \\
+\midrule
+\multicolumn{8}{l}{\emph{Learned: NormShift (combined)$^\ddagger$}} \\
+\textbf{NormShift}$^\ddagger$ & .393 & .235 & .253 & .324
+                 & .794 & .713 & .613 \\
+\bottomrule
+\multicolumn{8}{l}{\scriptsize $^\dagger$Post-hoc methods fit and evaluate on the same data.} \\
+\multicolumn{8}{l}{\scriptsize $^\ddagger$NormShift includes TruthfulQA in training data.}
+\end{tabular}
+\end{table}
 
 \subsection{Qwen2.5-14B (8-bit)}
 \label{app:calibration-qwen2.5-14b}
-\calibrationtable{qwen2.5-14b}{Qwen2.5-14B}{8-bit}
 
-\subsection{DeepSeek-R1-14B (8-bit)}
-\label{app:calibration-deepseek-r1-14b}
-\calibrationtable{deepseek-r1-14b}{DeepSeek-R1-14B}{8-bit}
+\begin{table}[H]
+\centering
+\caption{Calibration scores for Qwen2.5-14B on TruthfulQA (300 examples, 8-bit).}
+\label{tab:full-calibration-qwen2.5-14b}
+\small
+\begin{tabular}{@{}lccccccc@{}}
+\toprule
+Method & Acc & ECE\,$\downarrow$ & Brier\,$\downarrow$ & HLCC\,$\uparrow$
+       & AUROC\,$\uparrow$ & AUPRC\,$\uparrow$ & PRR\,$\uparrow$ \\
+\midrule
+\multicolumn{8}{l}{\emph{Phase 1: Logit-based}} \\
+Entropy                  & .620 & .322 & .311 & .600
+                 & .901 & .932 & .845 \\
+Top-$k$                  & .620 & .352 & .342 & .549
+                 & .799 & .838 & .624 \\
+MSP                      & .620 & .240 & .263 & .694
+                 & .719 & .796 & .508 \\
+GNLL                     & .620 & .240 & .263 & .694
+                 & .719 & .796 & .508 \\
+\midrule
+\multicolumn{8}{l}{\emph{Phase 2: Generation-based}} \\
+Verbalized               & .620 & .229 & .298 & .731
+                 & .604 & .707 & .264 \\
+Self-consistency         & .740 & .178 & .180 & 1.113
+                 & .747 & .859 & .490 \\
+Semantic entropy         & .747 & .171 & .177 & \textbf{1.140}
+                 & .740 & .876 & .542 \\
+\midrule
+\multicolumn{8}{l}{\emph{Phase 2: Post-hoc calibration$^\dagger$}} \\
+Temp.\ scaling           & .620 & .366 & .361 & .516
+                 & .669 & .762 & .420 \\
+Isotonic$^\dagger$       & .620 & \textbf{.000} & \textbf{.112} & 1.007
+                 & \textbf{.910} & \textbf{.941} & \textbf{.867} \\
+Platt$^\dagger$          & .620 & .057 & .122 & .984
+                 & .901 & .932 & .845 \\
+\midrule
+\multicolumn{8}{l}{\emph{Learned: NormShift (combined)$^\ddagger$}} \\
+\textbf{NormShift}$^\ddagger$ & .620 & .183 & .201 & .840
+                 & .786 & .811 & .558 \\
+\bottomrule
+\multicolumn{8}{l}{\scriptsize $^\dagger$Post-hoc methods fit and evaluate on the same data.} \\
+\multicolumn{8}{l}{\scriptsize $^\ddagger$NormShift includes TruthfulQA in training data.}
+\end{tabular}
+\end{table}
 
-% -------------------------------------------------------
-% Cross-dataset evaluation tables (from CSV)
-% -------------------------------------------------------
+
 \section{Cross-Dataset Evaluation (50/50 Split)}
 \label{app:cross-dataset-eval}
 
-Each training dataset (ARC-Easy, TruthfulQA, ARC-Challenge) is split
-50/50: the first half trains the NormShift head, the second half serves
-as the in-domain test set.  Out-of-distribution (OOD) datasets are
-never seen during training.  When NormShift confidence falls below 0.4,
-a retry pass re-evaluates the question with a trick-question system
-prompt.
+Each training dataset (ARC-Easy, TruthfulQA, ARC-Challenge) is
+split 50/50: the first half trains the NormShift head, the second
+half serves as the in-domain test set.  Out-of-distribution (OOD)
+datasets are never seen during training.  When NormShift confidence
+falls below 0.4, a retry pass re-evaluates the question with a
+trick-question system prompt.
 
-\newcommand{\crossdatasettable}[2]{%  #1=model-key  #2=display
-\IfFileExists{tables/cross_dataset_#1.csv}{%
+\subsection{Mistral-7B}
+
 \begin{table}[H]
 \centering
-\caption{Cross-dataset evaluation for #2: NormShift (with retry) vs.\ MSP baseline.
-         Data: \texttt{tables/cross\_dataset\_#1.csv}.}
-\label{tab:cross-eval-#1}
+\caption{Cross-dataset evaluation for Mistral-7B: NormShift (with trick-question retry) vs.\ logit baselines.
+         Trained on 50\% of ARC-Easy + TruthfulQA + ARC-Challenge,
+         tested on held-out 50\% (in-domain) and unseen datasets (OOD).}
+\label{tab:cross-dataset-mistral-7b}
 \small
-\begin{tabular}{@{}llccccccc@{}}
+\begin{tabular}{@{}llcccccc@{}}
 \toprule
-Dataset & Type & Acc & NS\,AUROC & MSP\,AUROC & $\Delta$ & NS\,HLCC & Retried & Net \\
+Dataset & Type & Acc & NS\,AUROC & MSP\,AUROC & $\Delta$ & NS\,HLCC & MSP\,HLCC \\
 \midrule
-\csvreader[
-  head to column names,
-  late after line=\\,
-  late after last line=\\,
-]{tables/cross_dataset_#1.csv}{}{%
-  \dataset & \type & \nsacc & \nsauroc & \mspauroc & \deltaauroc & \nshlcc & \retrycount & \retrynet
-}%
+Arc Easy             & in-dom & .900 & \textbf{.930} & .897 & $+$0.033 & 1.751 & 1.651 \\
+Truthfulqa           & in-dom & .620 & \textbf{.978} & .763 & $+$0.215 & 1.125 & .186 \\
+Arc Challenge        & in-dom & .760 & \textbf{.919} & .793 & $+$0.126 & 1.321 & 1.091 \\
+Commonsenseqa        & OOD & .687 & .713 & \textbf{.764} & $-$0.051 & .926 & .919 \\
+Openbookqa           & OOD & .747 & .644 & \textbf{.740} & $-$0.096 & 1.013 & 1.070 \\
+Sciq                 & OOD & .860 & .801 & \textbf{.834} & $-$0.033 & 1.479 & 1.534 \\
+Hellaswag            & OOD & .560 & .493 & \textbf{.641} & $-$0.148 & .312 & .541 \\
+Mmlu                 & OOD & .413 & \textbf{.649} & .638 & $+$0.011 & .332 & .225 \\
 \bottomrule
 \end{tabular}
 \end{table}
-}{}%  silently skip if CSV absent
-}
 
-\subsection{Per-Model Results}
-\crossdatasettable{mistral-7b}{Mistral-7B}
-\crossdatasettable{qwen2.5-7b}{Qwen2.5-7B}
-\crossdatasettable{llama3.1-8b}{Llama-3.1-8B}
-\crossdatasettable{qwen2.5-14b}{Qwen2.5-14B}
-\crossdatasettable{deepseek-r1-14b}{DeepSeek-R1-14B}
+\subsection{Qwen2.5-7B}
 
-% -------------------------------------------------------
-% Retry summary (from CSV)
-% -------------------------------------------------------
+\begin{table}[H]
+\centering
+\caption{Cross-dataset evaluation for Qwen2.5-7B: NormShift (with trick-question retry) vs.\ logit baselines.
+         Trained on 50\% of ARC-Easy + TruthfulQA + ARC-Challenge,
+         tested on held-out 50\% (in-domain) and unseen datasets (OOD).}
+\label{tab:cross-dataset-qwen25-7b}
+\small
+\begin{tabular}{@{}llcccccc@{}}
+\toprule
+Dataset & Type & Acc & NS\,AUROC & MSP\,AUROC & $\Delta$ & NS\,HLCC & MSP\,HLCC \\
+\midrule
+Arc Easy             & in-dom & .853 & .716 & \textbf{.887} & $-$0.171 & 1.337 & 1.846 \\
+Truthfulqa           & in-dom & .447 & \textbf{.706} & .620 & $+$0.086 & .358 & .304 \\
+Arc Challenge        & in-dom & .793 & .636 & \textbf{.892} & $-$0.256 & 1.152 & 1.438 \\
+Commonsenseqa        & OOD & .733 & .625 & \textbf{.797} & $-$0.172 & 1.019 & 1.297 \\
+Openbookqa           & OOD & .667 & .641 & \textbf{.812} & $-$0.171 & .865 & 1.437 \\
+Sciq                 & OOD & .847 & .523 & \textbf{.832} & $-$0.309 & 1.214 & 1.686 \\
+Hellaswag            & OOD & .567 & .410 & \textbf{.742} & $-$0.332 & .402 & .735 \\
+Mmlu                 & OOD & .493 & .568 & \textbf{.718} & $-$0.150 & .390 & .597 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
 \subsection{Trick-Question Retry Summary}
 
-\IfFileExists{tables/retry_summary.csv}{%
 \begin{table}[H]
 \centering
 \caption{NormShift-gated retry with trick-question prompt.
-         When confidence $< 0.4$, the question is re-evaluated.
-         Rescue = wrong$\to$correct; Damage = correct$\to$wrong.
-         Data: \texttt{tables/retry\_summary.csv}.}
+         When NormShift confidence $< 0.4$, the question is re-evaluated
+         with a trick-question system prompt.  Rescue = wrong$\to$correct;
+         Damage = correct$\to$wrong.}
 \label{tab:retry-summary}
 \small
 \begin{tabular}{@{}llrrrr@{}}
 \toprule
 Model & Dataset & Retried & Rescues & Damage & Net \\
 \midrule
-\csvreader[
-  head to column names,
-  late after line=\\,
-  late after last line=\\,
-]{tables/retry_summary.csv}{}{%
-  \displayname & \dataset & \retrycount & \rescuecount & \damagecount & \net
-}%
+Mistral-7B           & Arc Easy           & 13 & 0 & 0 & $+$0 \\
+                     & Truthfulqa         & 78 & 25 & 0 & $+$25 \\
+                     & Arc Challenge      & 28 & 3 & 1 & $+$2 \\
+                     & Commonsenseqa      & 33 & 2 & 3 & $-$1 \\
+                     & Openbookqa         & 18 & 1 & 0 & $+$1 \\
+                     & Sciq               & 8 & 0 & 2 & $-$2 \\
+                     & Hellaswag          & 40 & 0 & 2 & $-$2 \\
+                     & Mmlu               & 95 & 3 & 3 & $+$0 \\
+\midrule
+Qwen2.5-7B           & Arc Easy           & 64 & 0 & 16 & $-$16 \\
+                     & Truthfulqa         & 72 & 3 & 9 & $-$6 \\
+                     & Arc Challenge      & 71 & 2 & 9 & $-$7 \\
+                     & Commonsenseqa      & 76 & 2 & 13 & $-$11 \\
+                     & Openbookqa         & 75 & 0 & 26 & $-$26 \\
+                     & Sciq               & 89 & 1 & 12 & $-$11 \\
+                     & Hellaswag          & 82 & 5 & 14 & $-$9 \\
+                     & Mmlu               & 82 & 2 & 13 & $-$11 \\
 \bottomrule
 \end{tabular}
 \end{table}
-}{\textit{(No retry data available yet.)}}
+
 
 
 \section{Training Data Composition}
@@ -1384,11 +1695,25 @@ specific question instances overlap between these splits, the presence of
 TruthfulQA in the training set means that calibration results on
 TruthfulQA should be considered \emph{in-distribution} performance.
 
-The strong AUROC (0.999) of NormShift on TruthfulQA versus its
-degradation on held-out datasets (AUROC 0.40--0.57 in
-\Cref{tab:cross-dataset}) directly reflects this overlap.  Future work
-should enforce strict train/test partitioning or evaluate exclusively on
-datasets unseen during training.
+The strong AUROC (0.999) of NormShift on Mistral-7B TruthfulQA versus
+its degradation on held-out datasets in \Cref{tab:cross-dataset}
+directly reflects this overlap.  The 50/50 split evaluation
+(\Cref{tab:cross-dataset-mistral-7b,tab:cross-dataset-qwen25-7b})
+provides a cleaner test: NormShift still dominates in-domain for
+Mistral-7B (AUROC 0.978 on held-out TruthfulQA) but not for Qwen2.5-7B
+(AUROC 0.706), and degrades on OOD datasets for both models.
+
+\paragraph{Checkpoint vs.\ calibration evaluation gap.}
+A notable discrepancy exists between the checkpoint training metrics
+and calibration evaluation.  For example, the Qwen2.5-7B combined head
+achieves ECE\,=\,0.060 at checkpoint selection, but ECE\,=\,0.305 when
+evaluated as a calibration baseline on TruthfulQA.  The Llama-3.1-8B
+head shows a similar gap (checkpoint ECE\,=\,0.040 vs.\ calibration
+eval ECE\,=\,0.235).  Only Mistral-7B shows close agreement (checkpoint
+ECE\,=\,0.020 vs.\ calibration eval ECE\,=\,0.030).  This gap suggests
+that the head overfits to its training distribution on some
+architectures, and that checkpoint metrics alone are insufficient for
+assessing generalisation.
 
 
 \section{Methodology Notes}
@@ -1417,22 +1742,29 @@ examples).
 
 \paragraph{NormShift in-distribution advantage.}
 The NormShift confidence head is trained using HLCC loss on data that
-includes TruthfulQA examples.  The near-perfect discrimination scores
-(AUROC\,$\approx$\,1.0, PRR\,$\approx$\,1.0) on TruthfulQA therefore
-reflect a learned mapping from the norm-shift signal to
-correct/incorrect labels within the training distribution.  The
-cross-dataset transfer results (\Cref{tab:cross-dataset}) show that this
-mapping does not generalise: AUROC drops to 0.40--0.57 on unseen
-datasets, and PRR becomes negative on MMLU ($-$0.09) and HellaSwag
-($-$0.18), indicating that the confidence ranking is \emph{worse than
-random} for these distributions.
+includes TruthfulQA examples.  On Mistral-7B, this produces
+near-perfect discrimination (AUROC\,$\approx$\,1.0,
+PRR\,$\approx$\,1.0), and the 50/50 split confirms strong in-domain
+generalisation (AUROC 0.978 on held-out TruthfulQA, 0.930 on ARC-Easy,
+0.919 on ARC-Challenge).  However, this strong performance does not
+transfer to all architectures: on Qwen2.5-7B, NormShift achieves only
+AUROC 0.706 on held-out TruthfulQA and loses to MSP on two of three
+in-domain datasets.
+
+On out-of-distribution data, AUROC drops to 0.49--0.80 (Mistral-7B)
+and 0.41--0.64 (Qwen2.5-7B).  For Qwen2.5-7B, PRR metrics are
+unreliable as a comparison since the retry mechanism changes the
+accuracy.
 
 This does not invalidate the norm-shift signal itself---the per-layer
 standard deviation patterns do differ between correct and incorrect
 predictions even on out-of-distribution data (\Cref{tab:layer-signals}).
-Rather, it indicates that the \emph{learned decision boundary} is
-distribution-specific.  Domain-adaptive training or multi-dataset
-training with greater diversity could improve transfer.
+Rather, it indicates that the \emph{learned decision boundary} is both
+distribution-specific and architecture-dependent.  Mistral-7B's
+normalisation dynamics appear to provide a particularly informative
+basis for confidence estimation, while other architectures may require
+different training strategies or larger training sets to achieve
+comparable transfer.
 
 \paragraph{Implications for general-purpose confidence.}
 The current NormShift head should not be used as a general-purpose
