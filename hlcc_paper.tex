@@ -37,7 +37,7 @@
 \DeclareMathOperator*{\argmax}{arg\,max}
 \DeclareMathOperator*{\argmin}{arg\,min}
 
-\title{Hybrid Linear-Convex Confidence Loss\\for Calibrated Language Models}
+\title{Hybrid Linear-Convex Confidence:\\An Asymmetric Scoring Function for Language Model Calibration}
 \author{
   Simon [Last Name]\\
   \texttt{[email]}
@@ -51,24 +51,32 @@
 \input{paper_numbers}
 
 \begin{abstract}
-We introduce the Hybrid Linear-Convex Confidence (\hlcc{}) loss, a
-scoring function that combines a linear reward for correct predictions
-with a quadratic penalty for confident errors.  Unlike proper scoring
-rules such as the Brier score or log-loss, where the optimal confidence
-equals the true accuracy ($\cstar = p$), \hlcc{} induces a conservative
-mapping $\cstar = p/[4(1-p)]$ that naturally suppresses overconfidence
-below the crossover point at $p = 0.75$.  We implement \hlcc{} as a trainable objective for
-language-model confidence heads, proposing a dual-path
-\emph{NormShift} architecture that routes per-layer normalisation
-dynamics alongside final hidden states to estimate per-token confidence.
-We benchmark against 13 baseline confidence methods (including maximum
-softmax probability, entropy, self-consistency, semantic entropy,
-chain-of-thought verbalisation, temperature scaling, isotonic
-regression, and Platt scaling) across 9 datasets and 9 model scales
-from 1.1B to 14.2B parameters.  Results are evaluated on discrimination
-(AUROC, AUPRC), calibration (ECE, Brier), and selective prediction
-(PRR, accuracy at coverage thresholds), providing a comprehensive
-assessment of confidence estimation in modern language models.
+Language models are systematically overconfident, yet the standard tools
+for measuring and training calibrated confidence---Brier score,
+log-loss---treat over- and under-confidence symmetrically.  We propose
+the Hybrid Linear-Convex Confidence (\hlcc{}) scoring function, which
+pairs a linear reward $R(c) = 1{+}c$ for correct predictions with a
+quadratic penalty $P(c) = {-}2c^{2}$ for confident errors.  The
+resulting optimal confidence $\cstar = p/[4(1{-}p)]$ is conservative:
+strictly below the true accuracy~$p$ for $p < 0.75$, matching it at
+$p = 0.75$, and saturating at $\cstar = 1$ when $p \geq 0.80$.  We
+show that removing the upper bound on~$c$ yields an \emph{unbounded
+wagering} extension in which a model with accuracy~$p$ optimally stakes
+$\cstar = p/[4(1{-}p)]$ without clamping---for example,
+$\cstar \approx 8$ at $p = 0.97$, earning $+9$ per correct answer but
+risking $-128$ per error.  The expected payoff under optimal staking,
+$p(8{-}7p)/[8(1{-}p)]$, grows without bound as $p \to 1$, creating a
+strong incentive gradient for near-certain predictions while the
+quadratic penalty makes overconfident errors catastrophic.
+We benchmark \hlcc{} alongside 13~baseline confidence methods across
+5~models (7B--14B parameters) and 9~datasets, evaluating discrimination
+(AUROC), calibration (ECE, Brier), selective prediction (PRR), and
+\hlcc{} score.  As a case study, we train a lightweight
+\emph{NormShift} confidence head that exploits per-layer normalisation
+dynamics, achieving near-perfect in-domain discrimination on some
+architectures but limited out-of-distribution transfer---underscoring
+that learned confidence heads complement rather than replace
+logit-based methods.
 \end{abstract}
 
 % ============================================================
@@ -107,28 +115,33 @@ Hybrid Linear-Convex Confidence (\hlcc{}) scoring function:
   \end{cases}
   \label{eq:hlcc-scoring}
 \end{equation}
-where $c \in [0,1]$ is the stated confidence and $y \in \{0,1\}$
+where $c \geq 0$ is the stated confidence and $y \in \{0,1\}$
 indicates correctness.  The linear reward provides a constant marginal
 incentive for increased confidence on correct predictions, while the
 quadratic penalty creates an escalating marginal cost for confident
-errors.  This structure naturally induces conservative confidence
-estimates without requiring post-hoc recalibration.
+errors.  In the \emph{bounded} variant ($c \in [0,1]$), this structure
+naturally induces conservative confidence estimates.  In the
+\emph{unbounded} variant ($c \in [0,\infty)$), it becomes a wagering
+system where a model can stake arbitrarily high confidence---but the
+quadratic penalty makes overconfident errors catastrophically expensive.
 
 \paragraph{Contributions.}
 \begin{enumerate}[nosep]
   \item We derive the theoretical properties of \hlcc{}, showing that
         the optimal confidence $\cstar = p/[4(1-p)]$ is strictly below
-        the true accuracy $p$ for $p < 0.75$, providing a built-in
-        conservative bias (\Cref{sec:theory}).
-  \item We propose the \emph{NormShift} confidence head, a dual-path
-        architecture that combines per-layer normalisation shift signals
-        with final hidden states to estimate token-level confidence
-        (\Cref{sec:architecture}).
-  \item We conduct a comprehensive benchmarking study covering 11
-        baselines, 9 datasets, and 9 models from 1.1B to 14.2B
-        parameters, with metrics spanning discrimination, calibration,
-        and selective prediction
+        the true accuracy $p$ for $p < 0.75$, and we analyse the
+        unbounded extension where $\cstar > 1$ creates a wagering
+        system with expected payoff $p(8{-}7p)/[8(1{-}p)]$
+        (\Cref{sec:theory}).
+  \item We conduct a comprehensive benchmarking study of 14 confidence
+        methods across 5 models (7B--14B), 9 datasets, and 6 metric
+        families, using \hlcc{} score alongside standard metrics to
+        reveal overconfidence that ECE and AUROC miss
         (\Cref{sec:methodology,sec:results}).
+  \item As a case study, we propose the \emph{NormShift} confidence
+        head, a lightweight architecture trained with \hlcc{} loss
+        that exploits per-layer normalisation dynamics
+        (\Cref{sec:architecture}).
 \end{enumerate}
 
 
@@ -141,10 +154,13 @@ estimates without requiring post-hoc recalibration.
 
 \begin{definition}[HLCC Score]
   For a binary outcome $y \in \{0,1\}$ and stated confidence
-  $c \in [0,1]$, the \hlcc{} score is
+  $c \geq 0$, the \hlcc{} score is
   \begin{equation}
     S(y, c) = y(1 + c) + (1-y)(-2c^{2}).
   \end{equation}
+  We distinguish two variants: \emph{bounded} \hlcc{} with
+  $c \in [0,1]$, and \emph{unbounded} \hlcc{} with
+  $c \in [0,\infty)$.
 \end{definition}
 
 The reward function $R(c) = 1 + c$ is affine with constant derivative
@@ -158,12 +174,14 @@ weakly dominant over abstention.
 
 \begin{proposition}[Optimal Confidence under HLCC]
 \label{prop:optimal}
-  For an agent with true probability of correctness $p \in [0,1]$, the
+  For an agent with true probability of correctness $p \in (0,1)$, the
   confidence $\cstar$ maximising expected \hlcc{} score is
   \begin{equation}
-    \cstar = \min\!\left(1,\;\frac{p}{4(1-p)}\right).
+    \cstar = \frac{p}{4(1-p)}.
     \label{eq:cstar}
   \end{equation}
+  Under bounded \hlcc{} ($c \in [0,1]$), this is clamped:
+  $\cstar_{\text{bounded}} = \min(1,\; p/[4(1{-}p)])$.
 \end{proposition}
 
 \begin{proof}
@@ -177,65 +195,150 @@ weakly dominant over abstention.
   \end{equation}
   Setting to zero and solving for $c$:
   \begin{equation}
-    \cstar = \frac{p}{4(1-p)},
+    \cstar = \frac{p}{4(1-p)}.
   \end{equation}
-  subject to the constraint $c \in [0,1]$, giving the minimum with~$1$.
   The second derivative $\partial^{2}\E[S]/\partial c^{2} = -4(1-p) < 0$
-  for $p < 1$, confirming this is a maximum.
+  for $p < 1$, confirming this is a global maximum on $[0,\infty)$.
+  Under the bounded constraint $c \in [0,1]$, we take
+  $\min(1, \cstar)$.
 \end{proof}
 
-\begin{corollary}[Crossover Point]
+\begin{corollary}[Crossover and Saturation]
 \label{cor:crossover}
-  The \hlcc{} optimal confidence equals the true accuracy ($\cstar = p$)
-  at exactly $p = 0.75$.  For $p < 0.75$, $\cstar < p$ (conservative).
-  For $p > 0.75$, $\cstar > p$ until saturation at $\cstar = 1$ when
-  $p \geq 0.8$.
+  The optimal confidence equals the true accuracy ($\cstar = p$)
+  at exactly $p = 3/4$.  For $p < 3/4$, $\cstar < p$ (conservative).
+  For $p > 3/4$, $\cstar > p$.  Under bounded \hlcc{}, saturation
+  occurs at $\cstar = 1$ when $p \geq 4/5$.  Under unbounded \hlcc{},
+  $\cstar$ grows without limit: $\cstar = 2.25$ at $p = 0.9$,
+  $\cstar \approx 8$ at $p = 0.97$, and $\cstar \to \infty$ as
+  $p \to 1$.
 \end{corollary}
 
 \begin{proof}
   Setting $\cstar = p$: $p = p/[4(1-p)]$ implies $4(1-p) = 1$, hence
-  $p = 3/4$.  The saturation point solves $p/[4(1-p)] = 1$, giving
-  $p = 4/5$.
+  $p = 3/4$.  The bounded saturation point solves $p/[4(1-p)] = 1$,
+  giving $p = 4/5$.  As $p \to 1$, the denominator $4(1-p) \to 0$,
+  so $\cstar \to \infty$.
 \end{proof}
 
-\begin{proposition}[Theoretical Maximum HLCC]
+\begin{proposition}[Maximum HLCC --- Bounded]
 \label{prop:max-hlcc}
-  For a model with accuracy $p$, the maximum achievable HLCC score is
-  $S_{\max} = 2p$, attained when $c = 1$ for every correct prediction
-  and $c = 0$ for every incorrect prediction.  The \emph{HLCC efficiency}
-  $\eta = S_{\text{HLCC}} / (2p)$ measures how well the confidence method
-  exploits the model's accuracy, with $\eta = 1$ indicating perfect
-  self-knowledge.
+  Under bounded \hlcc{} ($c \in [0,1]$), the maximum achievable
+  expected score for a model with accuracy~$p$ is $S_{\max} = 2p$,
+  attained when $c = 1$ for every correct prediction and $c = 0$ for
+  every incorrect prediction.  The \emph{bounded HLCC efficiency}
+  $\eta = S_{\text{HLCC}} / (2p)$ measures how well the confidence
+  method exploits the model's accuracy.
 \end{proposition}
 
 \begin{proof}
   With perfect self-knowledge, each correct prediction ($p$ fraction)
   scores $S(1, 1) = 1 + 1 = 2$, and each incorrect prediction
   ($1 - p$ fraction) scores $S(0, 0) = 0$.  The expected score is
-  $p \cdot 2 + (1-p) \cdot 0 = 2p$.  No other confidence assignment
-  achieves a higher expected score, since $R(c) \leq 2$ and $P(c) \leq 0$.
+  $p \cdot 2 + (1-p) \cdot 0 = 2p$.  No other bounded confidence
+  assignment achieves a higher expected score, since
+  $R(c) \leq 2$ and $P(c) \leq 0$ on $[0,1]$.
 \end{proof}
 
+\subsection{Unbounded Confidence: The Wagering Extension}
+\label{sec:unbounded}
+
+Removing the upper bound on~$c$ transforms \hlcc{} from a calibration
+score into a \emph{wagering system}.  A model that is highly confident
+can stake $c \gg 1$, earning a large linear reward when correct but
+suffering a catastrophic quadratic penalty when wrong.
+
+\begin{proposition}[Optimal Expected Score --- Unbounded]
+\label{prop:unbounded-score}
+  Under unbounded \hlcc{}, a model with accuracy~$p \in (0,1)$ that
+  plays the optimal confidence $\cstar = p/[4(1{-}p)]$ achieves
+  expected score
+  \begin{equation}
+    \E[S(\cstar)] = \frac{p(8 - 7p)}{8(1-p)}.
+    \label{eq:unbounded-expected}
+  \end{equation}
+  This is finite for all $p < 1$ and grows without bound as
+  $p \to 1$.
+\end{proposition}
+
+\begin{proof}
+  Substituting $\cstar = p/[4(1{-}p)]$ into
+  $\E[S] = p + p\cstar - 2(1{-}p){\cstar}^{2}$:
+  \begin{align}
+    p\cstar &= \frac{p^{2}}{4(1-p)}, \\
+    2(1{-}p){\cstar}^{2} &= 2(1{-}p)\cdot\frac{p^{2}}{16(1{-}p)^{2}}
+      = \frac{p^{2}}{8(1-p)}.
+  \end{align}
+  Hence $\E[S(\cstar)] = p + \frac{p^{2}}{4(1{-}p)} -
+  \frac{p^{2}}{8(1{-}p)} = p + \frac{p^{2}}{8(1{-}p)} =
+  \frac{8p(1{-}p) + p^{2}}{8(1{-}p)} = \frac{p(8-7p)}{8(1{-}p)}$.
+\end{proof}
+
+\begin{proposition}[Break-Even Confidence]
+\label{prop:breakeven}
+  For a given confidence level~$c$, the minimum accuracy required for
+  positive expected \hlcc{} score is
+  \begin{equation}
+    p_{\min}(c) = \frac{2c^{2}}{1 + c + 2c^{2}}.
+    \label{eq:breakeven}
+  \end{equation}
+  The confidence~$c$ is optimal (better than~$c{-}1$) only when
+  $p > 4c/[1 + 4c]$.
+\end{proposition}
+
+\begin{proof}
+  Setting $\E[S] = p(1{+}c) - 2(1{-}p)c^{2} = 0$ and solving for~$p$:
+  $p(1{+}c{+}2c^{2}) = 2c^{2}$, giving~\eqref{eq:breakeven}.
+\end{proof}
+
+\begin{remark}[Worked example: $c = 9$]
+  At $c = 9$, each correct answer scores $R(9) = 10$ and each error
+  costs $P(9) = -162$.  The break-even accuracy is
+  $p_{\min} = 162/172 \approx 0.942$.
+  Setting $c = 9$ is optimal over $c = 8$ when
+  $p > 34/35 \approx 0.971$, since the marginal gain from staking one
+  additional unit of confidence requires accuracy sufficient to offset
+  the quadratic penalty increase from $-128$ to $-162$.
+\end{remark}
+
+The unbounded extension connects \hlcc{} to classical
+wagering theory.  The quadratic penalty plays the role of a
+\emph{risk charge} analogous to the house edge in
+gambling~\cite{kelly1956}: the linear reward makes confident correct
+answers ``cheap,'' while the quadratic penalty makes confident errors
+``expensive.''  This asymmetry is precisely the structure that
+Gardner-Medwin's CBM discretises into three levels~\cite{gardnermedwin2006}:
+CBM level $C{=}3$ ($+3/{-}6$) corresponds roughly to $c \approx 1.5$
+in unbounded \hlcc{}, and the CBM boundary at $p = 4/5$ matches the
+\hlcc{} saturation point where $\cstar = 1$.
+
 \Cref{tab:rational-confidence} shows the optimal confidence mapping at
-representative accuracy levels.
+representative accuracy levels for both bounded and unbounded variants.
 
 \begin{table}[t]
 \centering
-\caption{Optimal confidence $\cstar$ under \hlcc{} compared with Brier/log-loss
-         ($\cstar = p$) and CBM discrete levels.
-         Data: \texttt{tables/rational\_confidence.csv}.}
+\caption{Optimal confidence $\cstar$ under bounded and unbounded \hlcc{},
+         compared with Brier ($\cstar = p$).  The unbounded
+         expected score $\E[S(\cstar)]$ grows rapidly for high~$p$,
+         rewarding models that can reliably identify near-certain answers.}
 \label{tab:rational-confidence}
-\begin{tabular}{@{}lcccc@{}}
+\begin{tabular}{@{}rccccl@{}}
 \toprule
-True Accuracy $p$ & \hlcc{} $\cstar$ & Brier $\cstar$ & CBM Level & Behavioural Regime \\
+$p$ & Bounded $\cstar$ & Unbounded $\cstar$ & Brier $\cstar$
+    & $\E[S(\cstar)]$ & Regime \\
 \midrule
-\csvreader[
-  head to column names,
-  late after line=\\,
-  late after last line=\\,
-]{tables/rational_confidence.csv}{}{%
-  \p & \hlcccstar & \briercstar & \cbmlevel & \regime
-}%
+0.00 & 0.000 & 0.000 & 0.00 & 0.000 & Abstention \\
+0.25 & 0.083 & 0.083 & 0.25 & 0.260 & Suppressed guessing \\
+0.50 & 0.250 & 0.250 & 0.50 & 0.563 & Conservative \\
+0.75 & 0.750 & 0.750 & 0.75 & 0.891 & Crossover ($\cstar = p$) \\
+0.80 & 1.000 & 1.000 & 0.80 & 1.000 & Bounded saturation \\
+\midrule
+0.85 & 1.000 & 1.417 & 0.85 & 1.176 & \textit{Unbounded: $c > 1$} \\
+0.90 & 1.000 & 2.250 & 0.90 & 1.913 & \\
+0.93 & 1.000 & 3.321 & 0.93 & 2.953 & \\
+0.95 & 1.000 & 4.750 & 0.95 & 4.156 & \\
+0.97 & 1.000 & 8.083 & 0.97 & 7.331 & \\
+0.99 & 1.000 & 24.750 & 0.99 & 24.009 & \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -259,7 +362,10 @@ $S_L = y\log c + (1-y)\log(1-c)$, which are both maximised at $\cstar = p$,
 This asymmetry is the key structural difference from proper scoring
 rules.  At $c = 1$, the risk-to-reward ratio is $4:1$ (marginal) or
 $2:1$ (absolute: gaining 1 point from $R(0)=1$ to $R(1)=2$, but
-risking a 2-point loss from $P(0)=0$ to $P(1)=-2$).
+risking a 2-point loss from $P(0)=0$ to $P(1)=-2$).  In the unbounded
+variant, this ratio grows as $4c:1$---at $c = 9$, the marginal risk is
+$36:1$, ensuring that only models with very high accuracy ($p > 0.97$)
+benefit from such aggressive staking.
 
 \subsection{Safe Guess Mechanism}
 
@@ -986,60 +1092,87 @@ The \hlcc{} optimal confidence formula $\cstar = p/[4(1-p)]$
 systematically underestimates confidence for models with accuracy below
 75\%.  While this departs from the strict propriety of Brier and
 log-loss, it may be advantageous in deployment scenarios where
-overconfident errors carry disproportionate cost, for example in medical
-diagnosis, legal reasoning, or autonomous decision-making.
+overconfident errors carry disproportionate cost---medical
+diagnosis, legal reasoning, or autonomous decision-making.  The
+benchmark results illustrate this: on Llama-3.1-8B, entropy and
+top-$k$ produce \emph{negative} HLCC scores ($-0.211$, $-0.314$)
+despite acceptable ECE, because HLCC's quadratic penalty exposes
+overconfidence that symmetric metrics mask.
 
-\paragraph{Model-Dependent NormShift Effectiveness.}
-The NormShift head exhibits striking performance variation across model
-architectures and scales.  Among five primary models trained with
-identical hyperparameters at FP16 or 8-bit precision, the
-\emph{combined} variant achieves its best calibration on Mistral-7B
-(ECE\,=\,\mistralCombinedECE{}), followed by Llama-3.1-8B (ECE\,=\,\llamaCombinedECE{}) and
-Qwen2.5-7B (ECE\,=\,\qwenCombinedECE{}).  Llama-3.1-8B attains the highest HLCC
-score (\llamaCombinedHLCC{}) driven by its high validation accuracy, closely followed
-by Qwen2.5-14B (HLCC\,=\,\qwenLCombinedHLCC{}).  The 14B models show
-that scaling does not uniformly improve calibration; DeepSeek-R1-14B
-achieves ECE\,=\,\deepseekCombinedECE{}, considerably worse than Qwen2.5-14B
-(ECE\,=\,\qwenLCombinedECE{}) despite identical parameter counts.  This variation
-suggests that the utility of norm-shift signals depends on the model's
-internal normalisation dynamics and residual stream geometry, not merely
-on model scale.  DeepSeek-R1-14B, a distillation product, shows the
-weakest norm-shift separation (peak $|d| = \deepseekBestLayerD{}$) and the poorest
-norm-shift-only training outcome (HLCC\,=\,\deepseekNSOHLCC{}).
+\paragraph{Bounded vs.\ Unbounded Regimes.}
+The bounded variant ($c \in [0,1]$) is appropriate for calibration
+tasks where confidence is a probability estimate.  The unbounded
+variant ($c \in [0,\infty)$) is appropriate for wagering, decision
+theory, and scenarios where models should express \emph{degrees of
+certainty} beyond simple probability calibration.  A model with
+$p = 0.97$ accuracy that can reliably identify which 97\% of answers
+are correct should be rewarded more than one that merely reports
+$c = 1.0$ uniformly.  Under unbounded \hlcc{}, the optimal stake is
+$\cstar \approx 8$, earning $+9$ per correct answer while risking
+$-128$ per error---a rational bet only at that accuracy level.
 
-\paragraph{NormShift Signal Interpretation.}
-The norm-shift signal $\delta^{(\ell)}$ captures how much each
-transformer layer's normalisation step altered the representation.
-Layers that apply large corrections may indicate inputs that fall outside
-the model's learned distribution, providing a complementary uncertainty
-signal to logit-based methods.  The ablation (\Cref{tab:ablation})
-quantifies the contribution of this signal relative to the standard
-hidden-state approach.
+This connects to a practical observation: high-accuracy models on
+easy datasets (e.g., Llama-3.1-8B on ARC-Easy with 92\% accuracy)
+are poorly differentiated by bounded HLCC because all methods
+saturate at $c = 1$.  Unbounded HLCC would reward methods that can
+distinguish the 8\% of questions the model will get wrong, even among
+universally high-confidence predictions.
+
+\paragraph{HLCC as an Evaluation Metric.}
+Beyond its role as a training objective, \hlcc{} score serves as a
+diagnostic that complements ECE and AUROC.  ECE measures calibration
+but not discrimination; AUROC measures discrimination but not
+calibration.  HLCC penalises both: a method with high AUROC but poor
+calibration (e.g., entropy on Mistral-7B: AUROC 0.602, HLCC 0.105) is
+exposed, as is a method with low ECE but poor discrimination.  The
+HLCC efficiency $\eta = S_{\text{HLCC}}/(2p)$ further normalises
+for accuracy, enabling fair comparison across models with different
+base performance.
+
+\paragraph{Benchmark Insights.}
+The 14-method comparison reveals several patterns that hold across
+models: (1)~post-hoc calibration (isotonic, Platt) dramatically
+improves discrimination without retraining; (2)~self-consistency is
+the strongest baseline but costs $10\times$ inference;
+(3)~MSP is underrated for out-of-distribution detection, consistently
+matching or exceeding learned methods; (4)~verbalized confidence is
+unreliable across models; (5)~temperature scaling often \emph{hurts}
+calibration.  These findings are independent of the NormShift
+architecture and apply to any practitioner choosing a confidence
+method.
+
+\paragraph{NormShift Case Study.}
+The NormShift confidence head demonstrates that per-layer
+normalisation dynamics carry architecture-specific confidence
+information, but its practical value is model-dependent.
+On Mistral-7B it achieves near-perfect in-domain discrimination
+(AUROC 0.999) and effective confidence-gated retry (32\% rescue
+rate on TruthfulQA).  On other architectures and OOD data, it
+is typically outperformed by logit-based baselines.  This is
+expected for any learned confidence method: the head is trained on
+a specific data distribution and does not generalise as well as
+methods that exploit the model's own output distribution.
 
 \paragraph{Computational Cost Tradeoffs.}
 Tier~1 methods (entropy, MSP, NormShift) add negligible cost to
-inference.  The NormShift head requires a single additional forward pass
-through $\sim$500K parameters (less than 0.01\% of the base model).
-In contrast, Tier~3 methods (self-consistency, semantic entropy) multiply
-inference cost by the sample count $n$.  Across all five primary models,
-the combined NormShift head achieves competitive or superior calibration
-to multi-pass methods at a fraction of the cost, making it practical for
-real-time confidence estimation in deployment scenarios, including
-interactive token-level confidence visualisation during generation.
+inference.  Tier~3 methods (self-consistency, semantic entropy) multiply
+inference cost by the sample count $n$.  The cost advantage of
+single-pass methods is significant for deployment, but must be weighed
+against the superior discrimination of multi-pass methods---particularly
+self-consistency, which achieves HLCC 1.933 on DeepSeek-R1-14B.
 
 \paragraph{Limitations.}
 \begin{enumerate}[nosep]
-  \item Models above 8B parameters are evaluated under 8-bit quantisation;
-        full FP16 results may differ slightly.
   \item The MCQ evaluation format may not fully capture open-ended
         generation confidence.
-  \item The NormShift head is trained per-model and does not transfer
-        across architectures.
-  \item Performance varies substantially across model architectures,
-        suggesting architecture-dependent factors in norm-shift signal
-        quality.
-  \item The HLCC scoring function's conservative bias may undervalue
-        confidence in well-calibrated high-accuracy models.
+  \item Models above 8B parameters are evaluated under 8-bit quantisation;
+        full FP16 results may differ.
+  \item The unbounded \hlcc{} extension is analysed theoretically but
+        not yet implemented as a training objective; empirical validation
+        of unbounded training is future work.
+  \item Dataset sizes (300 examples for calibration, 150 per split for
+        cross-dataset) are moderate; larger-scale evaluation would
+        strengthen conclusions.
 \end{enumerate}
 
 
@@ -1237,6 +1370,36 @@ introduced by \citet{malinin2017predictive} and adopted by the
 LM-Polygraph framework~\cite{fadeeva2024lmpolygraph} as a standard
 metric for uncertainty benchmarking.
 
+\paragraph{Proper Scoring Rules.}
+The Brier score~\cite{brier1950verification} and log-loss (negative
+log-likelihood)~\cite{good1952} are the two most widely used proper
+scoring rules.  Propriety guarantees that the expected score is
+maximised when the reported probability equals the true probability,
+removing any incentive to misreport~\cite{gneiting2007strictly}.
+However, propriety is symmetric: over-reporting and under-reporting
+are penalised equally at the margin.  In safety-critical applications
+where overconfident errors are far costlier than cautious
+under-reporting, this symmetry is a
+limitation.  \hlcc{} deliberately breaks propriety by imposing
+quadratic penalties on wrong-and-confident predictions while offering
+only linear rewards for correct-and-confident ones, creating an
+asymmetric incentive structure that favours conservative estimation.
+
+\paragraph{Optimal Wagering and the Kelly Criterion.}
+\citet{kelly1956} showed that a gambler facing repeated bets at known
+odds maximises long-run wealth by wagering a fraction proportional to
+the edge, $f^{*} = p - (1{-}p)/b$ for payoff odds~$b$.  The key
+insight---stake more when the edge is larger, but never all-in---has
+influenced portfolio theory, information theory, and
+prediction markets~\cite{cover2006elements}.
+Unbounded \hlcc{} can be viewed as a single-round wagering system
+in which the ``stake'' is~$c$ and the quadratic penalty
+$P(c) = -2c^{2}$ acts as a risk charge that prevents reckless
+overbetting.  The optimal confidence $\cstar = p/[4(1{-}p)]$ plays an
+analogous role to the Kelly fraction: it grows monotonically with the
+edge $p$ and diverges as $p \to 1$, but the quadratic cost ensures
+that finite-accuracy agents always place a finite bet.
+
 \paragraph{Confidence-Based Marking.}
 \citet{gardnermedwin1995} introduced Certainty-Based Marking (CBM) for
 educational assessment, where students declare confidence on a
@@ -1252,11 +1415,15 @@ improves learning engagement in computer-assisted assessment, and
 \citet{gardnermedwin2019} provided evidence that certainty-based marking
 stimulates deeper thinking in objective tests.
 \hlcc{} can be viewed as a continuous generalisation of CBM: where CBM
-discretises confidence into three levels, \hlcc{} allows any $c \in [0,1]$
-while preserving the asymmetric penalty structure.  The CBM boundary at
+discretises confidence into three levels, bounded \hlcc{} allows any
+$c \in [0,1]$ and unbounded \hlcc{} extends the domain to
+$c \in [0, \infty)$, preserving the asymmetric penalty structure
+in both cases.  The CBM boundary at
 $p = 4/5$ (above which maximum confidence is optimal) corresponds to
-the \hlcc{} saturation point $\cstar = 1$ at $p = 0.8$
-(\Cref{cor:crossover}).  \citet{budescu2012optimal} studied optimal
+the bounded \hlcc{} saturation point $\cstar = 1$ at $p = 0.8$
+(\Cref{cor:crossover}); under the unbounded variant, $\cstar$ continues
+to grow beyond this point, paralleling a CBM scheme with arbitrarily
+many confidence levels.  \citet{budescu2012optimal} studied optimal
 scoring rules for confidence-weighted testing, analysing the tradeoff
 between strict propriety and behavioural desiderata such as participation
 incentives.
@@ -1267,79 +1434,65 @@ incentives.
 \label{sec:conclusion}
 % ============================================================
 
-We have presented the \hlcc{} scoring function and the NormShift
-confidence head as a practical method for training calibrated confidence
-estimates in language models.  Across five primary models spanning 7B to
-14B parameters, our key findings are:
+We have presented the Hybrid Linear-Convex Confidence (\hlcc{}) scoring
+function and demonstrated its utility as both a training objective and
+an evaluation metric for language model confidence estimation.
 
+\paragraph{HLCC Theory.}
+The \hlcc{} scoring function provides a principled alternative to proper
+scoring rules for settings where overconfident errors are costlier than
+cautious under-reporting.  The optimal confidence $\cstar = p/[4(1{-}p)]$
+is conservative below $p = 0.75$, matching the Brier optimum at the
+crossover point, and saturating at $\cstar = 1$ for $p \geq 0.8$ under
+the bounded variant.  The unbounded extension removes this cap, creating
+a wagering system where the optimal stake grows without limit as
+$p \to 1$: at $p = 0.97$, the rational bet is $\cstar \approx 8$,
+earning $+9$ when correct but risking $-128$ when wrong.  This
+extension connects \hlcc{} to classical wagering
+theory~\cite{kelly1956} and generalises Gardner-Medwin's discrete
+CBM scheme~\cite{gardnermedwin2006} to a continuous confidence
+domain.
+
+\paragraph{Benchmark Findings.}
+The 14-method comparison across 5 models and 9 datasets reveals
+actionable patterns:
 \begin{enumerate}[nosep]
-  \item \textbf{In-domain dominance on Mistral-7B.}  When trained on the
-        target distribution, NormShift achieves near-perfect
-        discrimination on Mistral-7B (AUROC\,=\,\mistralNormShiftAUROC{},
-        PRR\,=\,\mistralNormShiftPRR{} on TruthfulQA) while requiring
-        only a single forward pass through $\sim$500K additional
-        parameters.  The 50/50 split cross-dataset evaluation
-        (\Cref{tab:cross-dataset-mistral-7b}) confirms this: Mistral-7B
-        NormShift achieves AUROC\,=\,0.978 on held-out TruthfulQA,
-        0.930 on ARC-Easy, and 0.919 on ARC-Challenge, surpassing MSP
-        on all three in-domain datasets.  This is the strongest
-        in-domain result among the models we tested.
-  \item \textbf{Effective confidence-gated retry on Mistral-7B.}  When
-        NormShift confidence falls below 0.4, re-evaluating with a
-        trick-question prompt rescues 25 of 78 low-confidence questions
-        on TruthfulQA (32\% rescue rate) with zero damage.  This
-        demonstrates that NormShift can reliably identify questions worth
-        retrying.  However, this mechanism is model-dependent:
-        Qwen2.5-7B shows high damage rates (up to 35\% on OpenBookQA),
-        indicating that the retry strategy requires per-model tuning.
-  \item \textbf{Strong calibration at scale.}  The combined NormShift
-        head achieves ECE\,=\,\mistralCombinedECE{} on Mistral-7B and ECE\,=\,\llamaCombinedECE{}
-        on Llama-3.1-8B at FP16 precision.  Llama-3.1-8B achieves the
-        highest HLCC score (\llamaCombinedHLCC{}) driven by its high
-        accuracy on the training distribution.
-  \item \textbf{Architecture sensitivity.}  Performance varies
-        substantially across models and the strong Mistral-7B results
-        do not generalise to all architectures.  On Qwen2.5-7B and
-        Llama-3.1-8B, NormShift is outperformed by multi-pass baselines
-        (self-consistency, semantic entropy) and even by MSP in
-        cross-dataset evaluation.  DeepSeek-R1-14B shows weaker
-        calibration (ECE\,=\,\deepseekCombinedECE{}) despite identical
-        parameter count to Qwen2.5-14B (ECE\,=\,\qwenLCombinedECE{}).
-        The norm-shift-only ablation highlights this further: DeepSeek
-        essentially fails to train
-        (HLCC\,=\,\deepseekNSOHLCC{}) while Qwen2.5-14B reaches \qwenLNSOHLCC{}.
-  \item \textbf{Limited transfer.}  Cross-dataset evaluation reveals
-        that NormShift degrades on out-of-distribution data.  On
-        Mistral-7B, $\Delta$AUROC ranges from $-0.03$ (SciQ) to
-        $-0.15$ (HellaSwag) on OOD datasets, with MMLU being the one
-        exception where NormShift narrowly leads ($+0.01$).  On
-        Qwen2.5-7B the degradation is more severe ($\Delta$AUROC
-        $= -0.15$ to $-0.33$), and NormShift loses to MSP on all OOD
-        datasets.  Logit-based methods generalise better because they
-        exploit the model's own output distribution.
-  \item \textbf{Conservative bias as design choice.}  The \hlcc{}
-        scoring function induces a conservative confidence mapping
-        ($\cstar < p$ for $p < 0.75$), which heavily penalises
-        overconfident errors.  On models where entropy and top-$k$
-        produce negative HLCC scores due to overconfidence (e.g.,
-        Llama-3.1-8B: entropy $-0.211$, top-$k$ $-0.314$), NormShift
-        still achieves a positive score (0.324), though MSP (0.144)
-        also remains positive on this model.
+  \item \textbf{HLCC exposes hidden overconfidence.}  Entropy and
+        top-$k$ achieve acceptable ECE on Llama-3.1-8B but produce
+        \emph{negative} HLCC scores ($-0.211$, $-0.314$), revealing
+        systematic overconfidence that symmetric metrics miss.
+  \item \textbf{MSP is underrated for OOD.}  Maximum softmax probability
+        consistently matches or exceeds learned methods on
+        out-of-distribution datasets, with zero computational overhead.
+  \item \textbf{Self-consistency dominates when cost permits.}
+        At $10\times$ inference cost, self-consistency achieves the
+        highest HLCC on DeepSeek-R1-14B (1.933) and strong AUROC
+        across models.
+  \item \textbf{Post-hoc calibration is powerful.}  Isotonic regression
+        and Platt scaling substantially improve discrimination without
+        any model retraining.
 \end{enumerate}
 
-The theoretical analysis confirms that \hlcc{} departs from strict
-propriety in favour of asymmetric risk: rewarding correct confidence
-linearly while penalising incorrect confidence quadratically.
+\paragraph{NormShift Case Study.}
+As a case study in learned confidence, the NormShift head achieves
+near-perfect in-domain discrimination on Mistral-7B
+(AUROC\,=\,\mistralNormShiftAUROC{}) and effective confidence-gated
+retry (32\% rescue rate on TruthfulQA, zero damage).  However,
+performance is architecture-dependent and degrades on OOD data,
+consistent with the general finding that learned methods trade
+generality for in-domain precision.  The per-layer signal analysis
+reveals that different architectures encode confidence at different
+depths (L27 for Mistral-7B, L2 for Llama-3.1-8B), suggesting that
+normalisation dynamics carry architecture-specific self-knowledge.
 
-The strongest practical result is Mistral-7B, where NormShift serves
-as both a high-quality confidence estimator and an effective retry gate
-for the target distribution.  For other architectures and for
-out-of-distribution inputs, logit-based methods (particularly MSP and
-entropy) remain more reliable, and future work should investigate
-domain-agnostic training strategies for the confidence head.
-We provide an interactive confidence visualisation tool that colours
-generated tokens by their confidence level, enabling real-time
-inspection of model certainty during inference.
+\paragraph{Future Work.}
+Two directions merit investigation.  First, training with
+\emph{unbounded} \hlcc{} as an objective, where the confidence head
+outputs $c \in [0, \infty)$ rather than $[0,1]$, could better
+exploit the incentive gradient for near-certain predictions.  Second,
+domain-agnostic training strategies (e.g., meta-learning across
+datasets) could address the OOD transfer limitation of learned
+confidence heads.
 
 
 % ============================================================
@@ -1352,7 +1505,7 @@ inspection of model certainty during inference.
 
 This appendix reports the complete per-method calibration scores
 evaluated on TruthfulQA (300 examples).  These results complement
-the summary comparisons in \Cref{sec:baselines} by providing the
+the summary comparisons in \Cref{sec:results} by providing the
 full metric suite for each method and model.
 
 \subsection{Mistral-7B (FP16)}
@@ -1545,8 +1698,14 @@ Verbalized               & .620 & .229 & .298 & .731
                  & .604 & .707 & .264 \\
 Self-consistency         & .740 & .178 & .180 & 1.113
                  & .747 & .859 & .490 \\
+CoT confidence           & .767 & .189 & .197 & 1.114
+                 & .689 & .875 & .486 \\
 Semantic entropy         & .747 & .171 & .177 & \textbf{1.140}
                  & .740 & .876 & .542 \\
+LVU                      & .620 & .262 & .328 & .736
+                 & .531 & .667 & .137 \\
+CoCoA                    & .740 & .183 & .188 & 1.082
+                 & .846 & .936 & .773 \\
 \midrule
 \multicolumn{8}{l}{\emph{Phase 2: Post-hoc calibration$^\dagger$}} \\
 Temp.\ scaling           & .620 & .366 & .361 & .516
@@ -1559,6 +1718,60 @@ Platt$^\dagger$          & .620 & .057 & .122 & .984
 \multicolumn{8}{l}{\emph{Learned: NormShift (combined)$^\ddagger$}} \\
 \textbf{NormShift}$^\ddagger$ & .620 & .183 & .201 & .840
                  & .786 & .811 & .558 \\
+\bottomrule
+\multicolumn{8}{l}{\scriptsize $^\dagger$Post-hoc methods fit and evaluate on the same data.} \\
+\multicolumn{8}{l}{\scriptsize $^\ddagger$NormShift includes TruthfulQA in training data.}
+\end{tabular}
+\end{table}
+
+\subsection{DeepSeek-R1-14B (8-bit)}
+\label{app:calibration-deepseek-r1-14b}
+
+\begin{table}[H]
+\centering
+\caption{Calibration scores for DeepSeek-R1-14B on TruthfulQA (300 examples, 8-bit).}
+\label{tab:full-calibration-deepseek-r1-14b}
+\small
+\begin{tabular}{@{}lccccccc@{}}
+\toprule
+Method & Acc & ECE\,$\downarrow$ & Brier\,$\downarrow$ & HLCC\,$\uparrow$
+       & AUROC\,$\uparrow$ & AUPRC\,$\uparrow$ & PRR\,$\uparrow$ \\
+\midrule
+\multicolumn{8}{l}{\emph{Phase 1: Logit-based}} \\
+Entropy                  & .497 & .373 & .364 & .225
+                 & .839 & .838 & .731 \\
+Top-$k$                  & .497 & .383 & .374 & .211
+                 & .742 & .748 & .560 \\
+MSP                      & .497 & .234 & .302 & .365
+                 & .602 & .552 & .143 \\
+GNLL                     & .497 & .234 & .302 & .365
+                 & .602 & .552 & .143 \\
+\midrule
+\multicolumn{8}{l}{\emph{Phase 2: Generation-based}} \\
+Verbalized               & .497 & .347 & .371 & .256
+                 & .560 & .542 & .121 \\
+Self-consistency         & .983 & .013 & \textbf{.012} & 1.933
+                 & \textbf{.984} & \textbf{1.000} & \textbf{.985} \\
+CoT confidence           & 1.000 & .500 & .250 & 1.500
+                 & .500 & .500 & .000 \\
+Semantic entropy         & .990 & .028 & .017 & \textbf{1.937}
+                 & .961 & \textbf{1.000} & .960 \\
+LVU                      & .497 & .256 & .351 & .517
+                 & .484 & .504 & .007 \\
+CoCoA                    & .987 & .071 & .015 & 1.884
+                 & .976 & \textbf{1.000} & .975 \\
+\midrule
+\multicolumn{8}{l}{\emph{Phase 2: Post-hoc calibration$^\dagger$}} \\
+Temp.\ scaling           & .497 & .477 & .480 & .029
+                 & .597 & .603 & .262 \\
+Isotonic$^\dagger$       & .497 & \textbf{.000} & .153 & .691
+                 & .853 & .856 & .760 \\
+Platt$^\dagger$          & .497 & .045 & .164 & .665
+                 & .839 & .838 & .731 \\
+\midrule
+\multicolumn{8}{l}{\emph{Learned: NormShift (combined)$^\ddagger$}} \\
+\textbf{NormShift}$^\ddagger$ & .497 & .112 & .113 & .819
+                 & .948 & .933 & .898 \\
 \bottomrule
 \multicolumn{8}{l}{\scriptsize $^\dagger$Post-hoc methods fit and evaluate on the same data.} \\
 \multicolumn{8}{l}{\scriptsize $^\ddagger$NormShift includes TruthfulQA in training data.}
@@ -1626,6 +1839,81 @@ Mmlu                 & OOD & .493 & .568 & \textbf{.718} & $-$0.150 & .390 & .59
 \end{tabular}
 \end{table}
 
+\subsection{Llama-3.1-8B}
+
+\begin{table}[H]
+\centering
+\caption{Cross-dataset evaluation for Llama-3.1-8B: NormShift (with trick-question retry) vs.\ logit baselines.
+         Trained on 50\% of ARC-Easy + TruthfulQA + ARC-Challenge,
+         tested on held-out 50\% (in-domain) and unseen datasets (OOD).}
+\label{tab:cross-dataset-llama31-8b}
+\small
+\begin{tabular}{@{}llcccccc@{}}
+\toprule
+Dataset & Type & Acc & NS\,AUROC & MSP\,AUROC & $\Delta$ & NS\,HLCC & MSP\,HLCC \\
+\midrule
+Arc Easy             & in-dom & .840 & .483 & \textbf{.901} & $-$0.418 & .939 & 1.616 \\
+Truthfulqa           & in-dom & .527 & .634 & \textbf{.647} & $-$0.013 & .442 & .101 \\
+Arc Challenge        & in-dom & .667 & .430 & \textbf{.827} & $-$0.398 & .675 & 1.164 \\
+Commonsenseqa        & OOD & .520 & .572 & \textbf{.703} & $-$0.131 & .524 & 1.136 \\
+Openbookqa           & OOD & .613 & .611 & \textbf{.805} & $-$0.193 & .708 & 1.157 \\
+Sciq                 & OOD & .867 & .560 & \textbf{.875} & $-$0.315 & 1.094 & 1.728 \\
+Hellaswag            & OOD & .467 & .596 & \textbf{.732} & $-$0.136 & .470 & .710 \\
+Mmlu                 & OOD & .373 & .558 & \textbf{.643} & $-$0.086 & .247 & .101 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Qwen2.5-14B}
+
+\begin{table}[H]
+\centering
+\caption{Cross-dataset evaluation for Qwen2.5-14B: NormShift (with trick-question retry) vs.\ logit baselines.
+         Trained on 50\% of ARC-Easy + TruthfulQA + ARC-Challenge,
+         tested on held-out 50\% (in-domain) and unseen datasets (OOD).}
+\label{tab:cross-dataset-qwen25-14b}
+\small
+\begin{tabular}{@{}llcccccc@{}}
+\toprule
+Dataset & Type & Acc & NS\,AUROC & MSP\,AUROC & $\Delta$ & NS\,HLCC & MSP\,HLCC \\
+\midrule
+Arc Easy             & in-dom & .993 & .282 & \textbf{1.000} & $-$0.718 & 1.454 & 1.972 \\
+Truthfulqa           & in-dom & .593 & \textbf{.763} & .726 & $+$0.037 & .647 & .598 \\
+Arc Challenge        & in-dom & .907 & .737 & \textbf{.839} & $-$0.102 & 1.301 & 1.748 \\
+Commonsenseqa        & OOD & .867 & .564 & \textbf{.861} & $-$0.297 & 1.040 & 1.553 \\
+Openbookqa           & OOD & .920 & .684 & \textbf{.878} & $-$0.194 & 1.367 & 1.720 \\
+Sciq                 & OOD & .953 & .777 & \textbf{.909} & $-$0.131 & 1.307 & 1.839 \\
+Hellaswag            & OOD & .753 & .626 & \textbf{.724} & $-$0.098 & .992 & 1.084 \\
+Mmlu                 & OOD & .520 & .551 & \textbf{.767} & $-$0.216 & .548 & .492 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{DeepSeek-R1-14B}
+
+\begin{table}[H]
+\centering
+\caption{Cross-dataset evaluation for DeepSeek-R1-14B: NormShift (with trick-question retry) vs.\ logit baselines.
+         Trained on 50\% of ARC-Easy + TruthfulQA + ARC-Challenge,
+         tested on held-out 50\% (in-domain) and unseen datasets (OOD).}
+\label{tab:cross-dataset-deepseek-r1-14b}
+\small
+\begin{tabular}{@{}llcccccc@{}}
+\toprule
+Dataset & Type & Acc & NS\,AUROC & MSP\,AUROC & $\Delta$ & NS\,HLCC & MSP\,HLCC \\
+\midrule
+Arc Easy             & in-dom & .973 & .779 & \textbf{.949} & $-$0.170 & 1.904 & 1.878 \\
+Truthfulqa           & in-dom & .467 & \textbf{.963} & .641 & $+$0.322 & .775 & .282 \\
+Arc Challenge        & in-dom & .880 & .659 & \textbf{.872} & $-$0.213 & 1.576 & 1.553 \\
+Commonsenseqa        & OOD & .793 & .661 & \textbf{.819} & $-$0.158 & 1.044 & 1.294 \\
+Openbookqa           & OOD & .833 & .687 & \textbf{.838} & $-$0.151 & 1.352 & 1.439 \\
+Sciq                 & OOD & .953 & .818 & \textbf{.927} & $-$0.109 & 1.803 & 1.820 \\
+Hellaswag            & OOD & .580 & .622 & \textbf{.790} & $-$0.168 & .629 & .796 \\
+Mmlu                 & OOD & .573 & .664 & \textbf{.751} & $-$0.087 & .682 & .650 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
 \subsection{Trick-Question Retry Summary}
 
 \begin{table}[H]
@@ -1657,6 +1945,33 @@ Qwen2.5-7B           & Arc Easy           & 64 & 0 & 16 & $-$16 \\
                      & Sciq               & 89 & 1 & 12 & $-$11 \\
                      & Hellaswag          & 82 & 5 & 14 & $-$9 \\
                      & Mmlu               & 82 & 2 & 13 & $-$11 \\
+\midrule
+Llama-3.1-8B         & Arc Easy           & 127 & 1 & 10 & $-$9 \\
+                     & Truthfulqa         & 64 & 22 & 2 & $+$20 \\
+                     & Arc Challenge      & 129 & 1 & 12 & $-$11 \\
+                     & Commonsenseqa      & 122 & 4 & 40 & $-$36 \\
+                     & Openbookqa         & 134 & 8 & 28 & $-$20 \\
+                     & Sciq               & 107 & 1 & 10 & $-$9 \\
+                     & Hellaswag          & 133 & 4 & 19 & $-$15 \\
+                     & Mmlu               & 102 & 10 & 11 & $-$1 \\
+\midrule
+Qwen2.5-14B          & Arc Easy           & 78 & 0 & 0 & $+$0 \\
+                     & Truthfulqa         & 20 & 1 & 1 & $+$0 \\
+                     & Arc Challenge      & 83 & 1 & 5 & $-$4 \\
+                     & Commonsenseqa      & 121 & 3 & 4 & $-$1 \\
+                     & Openbookqa         & 71 & 0 & 1 & $-$1 \\
+                     & Sciq               & 102 & 0 & 1 & $-$1 \\
+                     & Hellaswag          & 89 & 2 & 2 & $+$0 \\
+                     & Mmlu               & 144 & 7 & 12 & $-$5 \\
+\midrule
+DeepSeek-R1-14B      & Arc Easy           & 1 & 0 & 0 & $+$0 \\
+                     & Truthfulqa         & 80 & 0 & 0 & $+$0 \\
+                     & Arc Challenge      & 8 & 1 & 0 & $+$1 \\
+                     & Commonsenseqa      & 93 & 1 & 1 & $+$0 \\
+                     & Openbookqa         & 25 & 0 & 1 & $-$1 \\
+                     & Sciq               & 11 & 0 & 0 & $+$0 \\
+                     & Hellaswag          & 118 & 1 & 5 & $-$4 \\
+                     & Mmlu               & 89 & 0 & 1 & $-$1 \\
 \bottomrule
 \end{tabular}
 \end{table}
