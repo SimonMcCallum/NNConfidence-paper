@@ -39,8 +39,9 @@
 
 \title{Hybrid Linear-Convex Confidence:\\An Asymmetric Scoring Function for Language Model Calibration}
 \author{
-  Simon [Last Name]\\
-  \texttt{[email]}
+  Dr Simon McCallum\\
+  Victoria University of Wellington\\
+  \texttt{simon.mccallum@vuw.ac.nz}
 }
 \date{\today}
 
@@ -51,32 +52,36 @@
 \input{paper_numbers}
 
 \begin{abstract}
-Language models are systematically overconfident, yet the standard tools
-for measuring and training calibrated confidence---Brier score,
-log-loss---treat over- and under-confidence symmetrically.  We propose
-the Hybrid Linear-Convex Confidence (\hlcc{}) scoring function, which
-pairs a linear reward $R(c) = 1{+}c$ for correct predictions with a
-quadratic penalty $P(c) = {-}2c^{2}$ for confident errors.  The
-resulting optimal confidence $\cstar = p/[4(1{-}p)]$ is conservative:
-strictly below the true accuracy~$p$ for $p < 0.75$, matching it at
-$p = 0.75$, and saturating at $\cstar = 1$ when $p \geq 0.80$.  We
-show that removing the upper bound on~$c$ yields an \emph{unbounded
-wagering} extension in which a model with accuracy~$p$ optimally stakes
-$\cstar = p/[4(1{-}p)]$ without clamping---for example,
-$\cstar \approx 8$ at $p = 0.97$, earning $+9$ per correct answer but
-risking $-128$ per error.  The expected payoff under optimal staking,
-$p(8{-}7p)/[8(1{-}p)]$, grows without bound as $p \to 1$, creating a
-strong incentive gradient for near-certain predictions while the
-quadratic penalty makes overconfident errors catastrophic.
+When a student answers a multiple-choice question, the cost of a
+confident wrong answer is qualitatively different from the cost of a
+cautious correct one.  Yet the standard tools for measuring
+calibrated confidence, notably the Brier score and log-loss, treat
+over- and under-confidence symmetrically.  Large language models
+inherit this blind spot.  Trained on cross-entropy loss, they are
+systematically overconfident, with no penalty structure that
+distinguishes dangerous certainty from harmless caution.
+We propose a Hybrid Linear-Convex Confidence (\hlcc{}) scoring
+function, which pairs a linear reward $R(c) = 1{+}c$ for correct
+answers with a quadratic penalty $P(c) = {-}2c^{2}$ for confident
+errors.  The resulting optimal confidence
+$\cstar = p/[4(1{-}p)]$ is conservative: strictly below the true
+accuracy~$p$ for $p < 0.75$, matching it at $p = 0.75$, and
+saturating at $\cstar = 1$ when $p \geq 0.80$.  Removing the upper
+bound on~$c$ yields an \emph{unbounded wagering} extension where
+$\cstar \approx 8$ at $p = 0.97$, but we show that even modest
+uncertainty in the estimate of~$p$ itself, arising from statistical
+noise, question ambiguity, and historical overconfidence, makes
+such aggressive staking catastrophically fragile, providing a
+principled argument for conservative confidence.
 We benchmark \hlcc{} alongside 13~baseline confidence methods across
-5~models (7B--14B parameters) and 9~datasets, evaluating discrimination
-(AUROC), calibration (ECE, Brier), selective prediction (PRR), and
-\hlcc{} score.  As a case study, we train a lightweight
-\emph{NormShift} confidence head that exploits per-layer normalisation
-dynamics, achieving near-perfect in-domain discrimination on some
-architectures but limited out-of-distribution transfer---underscoring
-that learned confidence heads complement rather than replace
-logit-based methods.
+5~models (7B--14B parameters) and 9~datasets, evaluating
+discrimination (AUROC), calibration (ECE, Brier), selective
+prediction (PRR), and \hlcc{} score.  As a case study, we train a
+lightweight \emph{NormShift} confidence head that exploits per-layer
+normalisation dynamics, achieving near-perfect in-domain
+discrimination on some architectures but limited out-of-distribution
+transfer, underscoring that learned confidence heads complement
+rather than replace logit-based methods.
 \end{abstract}
 
 % ============================================================
@@ -84,29 +89,43 @@ logit-based methods.
 \label{sec:introduction}
 % ============================================================
 
-Reliable confidence estimation is essential for the safe deployment of
-language models in high-stakes domains such as medicine, law, and
-education.  Standard autoregressive training with cross-entropy loss
-maximises token-level likelihood but provides no explicit training signal
-for calibrated uncertainty~\cite{guo2017calibration}.  The resulting
-softmax probabilities are often poorly calibrated, with models exhibiting
-systematic overconfidence on out-of-distribution
-inputs~\cite{hendrycks2017baseline}.
+Consider a student sitting a multiple-choice examination.  She reads the
+question, eliminates one implausible option, and is left with three
+candidates, one of which she is fairly sure is correct.  How confident
+should she be?  If the exam awards one mark for a correct answer and
+deducts nothing for an incorrect one, the rational strategy is to always
+answer, even when guessing.  If instead the exam deducts a full mark for
+every wrong answer, a risk-averse student will leave the question blank,
+forfeiting partial knowledge she genuinely possesses.  Neither scheme
+encourages her to \emph{think carefully about how much she knows}.
 
-Proper scoring rules, notably the Brier score and logarithmic loss, are the
-classical tools for eliciting calibrated probabilities.  Both are
-\emph{strictly proper}: the expected score is maximised only when the
-reported confidence equals the true probability of correctness.  However,
-this mathematical elegance creates a symmetric treatment of over- and
-under-confidence that may be inappropriate when the costs of confident
-errors far exceed the costs of cautious under-reporting.
+This poses a dilemma regarding the design of scoring systems.  We want
+a student, or a language model, to participate rather than abstain, yet
+we also want confident errors to be costly enough that the agent invests
+effort in calibrating its own uncertainty.  The classical
+solution is the \emph{proper scoring rule}: the Brier score and
+logarithmic loss are both maximised when the reported confidence equals
+the true probability of being correct.  However, this mathematical
+elegance creates a symmetric treatment of over- and under-confidence.
+A model that reports 90\% confidence when it is right 80\% of the time
+incurs the same penalty as one that reports 70\% confidence at the same
+accuracy.  In medicine, law, and autonomous systems, the consequences
+of a confidently wrong answer are qualitatively
+different from those of a cautiously correct one.
 
-In certainty-based marking (CBM) for educational
-assessment~\cite{gardnermedwin1995,gardnermedwin2006}, the asymmetry
-between ``confident and wrong'' versus ``cautious and right'' is encoded
-through discrete penalty scales derived from logarithmic proper scoring
-rules~\cite{good1952}.  Inspired by this asymmetry, we propose the
-Hybrid Linear-Convex Confidence (\hlcc{}) scoring function:
+Gardner-Medwin's certainty-based marking (CBM) for educational
+assessment~\cite{gardnermedwin1995,gardnermedwin2006} recognised this
+asymmetry decades ago, encoding it through discrete penalty scales
+derived from logarithmic proper scoring rules~\cite{good1952}.
+Under CBM, a student who marks high confidence and is wrong loses
+substantially more than one who hedges.  The key insight is simple: in
+most real-world settings, it is better to err on the side of
+under-confidence than over-confidence.  A doctor who says ``I'm not sure,
+let me check'' causes far less harm than one who confidently prescribes
+the wrong treatment.
+
+Inspired by this asymmetry, we propose the Hybrid Linear-Convex
+Confidence (\hlcc{}) scoring function:
 \begin{equation}
   S(y, c) =
   \begin{cases}
@@ -115,24 +134,46 @@ Hybrid Linear-Convex Confidence (\hlcc{}) scoring function:
   \end{cases}
   \label{eq:hlcc-scoring}
 \end{equation}
-where $c \geq 0$ is the stated confidence and $y \in \{0,1\}$
-indicates correctness.  The linear reward provides a constant marginal
-incentive for increased confidence on correct predictions, while the
-quadratic penalty creates an escalating marginal cost for confident
-errors.  In the \emph{bounded} variant ($c \in [0,1]$), this structure
-naturally induces conservative confidence estimates.  In the
+where $c \geq 0$ is the stated confidence and $y \in \{0,1\}$ indicates
+correctness.  The linear reward provides a constant marginal incentive
+for increased confidence on correct predictions, while the quadratic
+penalty creates an escalating marginal cost for confident errors.  At
+$c = 0$, a correct answer still earns one point and an incorrect answer
+costs nothing, so participating is always dominant over abstention and
+our student never has reason to leave a question blank.
+
+In the \emph{bounded} variant ($c \in [0,1]$), this structure naturally
+induces conservative confidence estimates: the optimal $\cstar$ lies
+strictly below the true accuracy~$p$ for $p < 0.75$.  In the
 \emph{unbounded} variant ($c \in [0,\infty)$), it becomes a wagering
-system where a model can stake arbitrarily high confidence---but the
-quadratic penalty makes overconfident errors catastrophically expensive.
+system where a model can stake arbitrarily high confidence, earning large
+rewards when correct but suffering catastrophic quadratic penalties when
+wrong.  There is a further subtlety in the unbounded regime: the optimal
+stake assumes the model knows its own accuracy perfectly, yet in practice
+there is always uncertainty in the estimate of~$p$ itself.  If the true
+accuracy is even a few percent lower than believed, say 95\% rather
+than 97\%, the error rate nearly doubles and the quadratic penalty
+amplifies that shortfall dramatically.  This uncertainty-in-$p$ effect
+provides an additional argument for the conservative bias that \hlcc{}
+naturally encodes.
+
+Large language models trained on internet text are systematically
+overconfident~\cite{guo2017calibration,hendrycks2017baseline}, and the
+standard tools for calibration treat this overconfidence no differently
+from equivalent under-confidence.  A scoring function should reflect
+the real-world cost structure: confident correctness is
+valuable, confident error is dangerous, and cautious uncertainty is
+safe.  \hlcc{} encodes precisely this structure.
 
 \paragraph{Contributions.}
 \begin{enumerate}[nosep]
   \item We derive the theoretical properties of \hlcc{}, showing that
         the optimal confidence $\cstar = p/[4(1-p)]$ is strictly below
-        the true accuracy $p$ for $p < 0.75$, and we analyse the
+        the true accuracy~$p$ for $p < 0.75$, and we analyse the
         unbounded extension where $\cstar > 1$ creates a wagering
-        system with expected payoff $p(8{-}7p)/[8(1{-}p)]$
-        (\Cref{sec:theory}).
+        system with expected payoff $p(8{-}7p)/[8(1{-}p)]$.  We further
+        show that uncertainty in the estimate of~$p$ strengthens the
+        case for conservative confidence (\Cref{sec:theory}).
   \item We conduct a comprehensive benchmarking study of 14 confidence
         methods across 5 models (7B--14B), 9 datasets, and 6 metric
         families, using \hlcc{} score alongside standard metrics to
@@ -342,6 +383,137 @@ $p$ & Bounded $\cstar$ & Unbounded $\cstar$ & Brier $\cstar$
 \bottomrule
 \end{tabular}
 \end{table}
+
+\subsection{Uncertainty in the Estimate of Accuracy}
+\label{sec:uncertainty-in-p}
+
+The analysis above assumes the agent knows its own accuracy~$p$
+perfectly.  In practice, no system, whether human or artificial, has
+exact self-knowledge.  A student who believes she answers correctly
+97\% of the time is in reality correct only 95\% of the time.
+A language model's empirical accuracy on a validation set is an
+estimate subject to sampling variance, distribution shift, and the
+inherent difficulty of self-assessment.  This uncertainty in~$p$
+has surprisingly large consequences in the unbounded regime.
+
+\begin{proposition}[Cost of Accuracy Overestimation]
+\label{prop:p-uncertainty}
+  Suppose an agent believes its accuracy is $\hat{p}$ and plays the
+  corresponding optimal confidence
+  $\hat{c} = \hat{p}/[4(1{-}\hat{p})]$, but the true accuracy is
+  $p = \hat{p} - \varepsilon$ for some $\varepsilon > 0$.  The
+  expected score under the true accuracy is
+  \begin{equation}
+    \E[S(\hat{c})] = p(1 + \hat{c}) - 2(1{-}p)\hat{c}^{2}.
+    \label{eq:misestimated-score}
+  \end{equation}
+  The shortfall relative to perfect self-knowledge grows
+  quadratically in~$\hat{c}$ and hence explodes as
+  $\hat{p} \to 1$.
+\end{proposition}
+
+To see why this matters, consider a concrete example.  An agent
+believes $\hat{p} = 0.97$ and accordingly stakes
+$\hat{c} = 0.97/[4 \times 0.03] \approx 8.08$.  Each correct answer
+earns $R(8.08) = 9.08$, and each error costs
+$P(8.08) = -2 \times 8.08^{2} \approx -130.7$.  If the true accuracy
+is in fact $p = 0.95$, a mere two percentage points lower, the
+error rate rises from 3\% to 5\%, an increase of nearly 67\%.  The
+expected score drops from $4.89$ (under correct self-knowledge at
+$p = 0.97$) to
+$0.95 \times 9.08 - 0.05 \times 130.7 \approx 2.10$.  Had the agent
+known its true accuracy and staked optimally at
+$\hat{c} = 0.95/[4 \times 0.05] = 4.75$, its expected score would have
+been $3.21$, more than 50\% higher.
+
+The mechanism is straightforward.  In the unbounded regime, the
+optimal confidence grows as $p/[4(1{-}p)]$, which is extremely
+sensitive to the denominator.  A small overestimate of~$p$ produces
+a large overestimate of~$\cstar$, and the quadratic penalty amplifies
+the resulting errors.  There are two reasons that this sensitivity
+matters for practical system design.  The first is that it provides
+a principled argument for conservative confidence even in the
+unbounded regime: an agent that is uncertain about its own accuracy
+should stake less aggressively than the theoretical optimum.  The
+second is that it highlights the value of the bounded variant for
+deployment, where clamping $c \leq 1$ limits the maximum possible
+loss to~$-2$ per question regardless of how badly accuracy is
+overestimated.
+
+\begin{table}[t]
+\centering
+\caption{Effect of accuracy overestimation in unbounded \hlcc{}.
+         The agent believes $\hat{p}$ and stakes optimally for that
+         belief, but the true accuracy is $p = \hat{p} - 0.02$.
+         The \emph{loss ratio} is the ratio of actual expected score
+         to the score achievable under correct self-knowledge at the
+         true~$p$.}
+\label{tab:p-uncertainty}
+\begin{tabular}{@{}rrrrrr@{}}
+\toprule
+$\hat{p}$ & True $p$ & $\hat{c}$ & True optimal $\cstar$ &
+$\E[S(\hat{c})]$ & Loss ratio \\
+\midrule
+0.82 & 0.80 & 1.139 & 1.000 & 1.192 & 0.994 \\
+0.87 & 0.85 & 1.673 & 1.417 & 1.432 & 0.986 \\
+0.92 & 0.90 & 2.875 & 2.250 & 1.834 & 0.959 \\
+0.95 & 0.93 & 4.750 & 3.321 & 2.189 & 0.885 \\
+0.97 & 0.95 & 8.083 & 4.750 & 2.095 & 0.653 \\
+0.99 & 0.97 & 24.750 & 8.083 & $-11.78$ & $< 0$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\Cref{tab:p-uncertainty} illustrates this effect across several
+accuracy levels with a fixed overestimation of $\varepsilon = 0.02$.
+At moderate accuracy the cost is modest, less than 1\% loss at
+$\hat{p} = 0.82$.  However, in the high-accuracy regime the cost
+becomes catastrophic: at $\hat{p} = 0.99$ with true $p = 0.97$, the
+agent stakes $c \approx 24.75$ and the expected score turns
+\emph{negative}, meaning the agent would have been better off not
+answering at all.  It is precisely the fact that real-world accuracy
+estimates are never perfectly reliable that makes the unbounded
+regime dangerous without additional safeguards.
+
+\paragraph{Sources of second-order uncertainty.}
+The simple $\varepsilon$-offset model above understates the problem,
+because it treats the estimation error as a single scalar.  In
+practice, the gap between believed and true accuracy arises from at
+least three distinct sources, each of which compounds the others.
+
+The first is \emph{statistical model noise}: the base variance
+inherent in any finite evaluation.  A model tested on 300 questions
+has a 95\% confidence interval of roughly $\pm\!3\%$ around its
+observed accuracy.  This is irreducible sampling error, approximately
+constant regardless of the accuracy level.
+
+The second is \emph{question ambiguity}, or setter risk.  The agent
+may be solving the wrong problem entirely.  The question may be poorly
+phrased, contain a semantic trick, or rely on a convention the agent
+does not share.  This introduces a noise floor
+that does not disappear simply because the event itself is likely.
+A model that is ``certain'' it knows the capital of Myanmar may be
+confidently answering a different question than the one being asked.
+
+The third, and most consequential for the unbounded regime, is the
+\emph{epistemic humility penalty}: the historical rate at which
+knowledge the agent believed to be true has turned out to be false.
+Unlike the first two sources, this penalty \emph{grows} as claimed
+confidence approaches certainty.  A well-calibrated agent should
+recognise that its track record of ``absolute certainty'' includes a
+non-trivial error rate.  This metacognitive risk, the risk of being
+wrong about being right, balloons precisely in the regime
+where the unbounded formula prescribes the most aggressive stakes.
+
+When these three sources are compounded, the effective uncertainty
+band never approaches zero, even at $\hat{p} \to 1$.  The practical
+consequence is that the optimal bet $\cstar$ should remain capped at
+a finite, conservative level rather than growing without bound.  This
+is precisely the behaviour that bounded \hlcc{} enforces by
+construction, and it suggests that the bounded variant is not merely
+a mathematical convenience but a reflection of the epistemic reality
+that no agent, human or artificial, ever truly has zero probability
+of error.
 
 \subsection{Comparison with Proper Scoring Rules}
 
