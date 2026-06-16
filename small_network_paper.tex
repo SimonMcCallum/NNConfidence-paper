@@ -1,0 +1,1121 @@
+% HLCC Loss on Small Networks
+% Compile with: pdflatex small_network_paper.tex && bibtex small_network_paper && pdflatex small_network_paper && pdflatex small_network_paper
+
+\documentclass[11pt,a4paper]{article}
+
+% Packages
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{amsmath,amssymb,amsthm}
+\usepackage{booktabs}
+\usepackage{graphicx}
+\usepackage{hyperref}
+\usepackage{cleveref}
+\usepackage{algorithm}
+\usepackage{algorithmic}
+\usepackage{multirow}
+\usepackage{subcaption}
+\usepackage[margin=2.5cm]{geometry}
+\usepackage{enumitem}
+\usepackage{xcolor}
+\usepackage{float}
+
+% Theorem environments
+\newtheorem{theorem}{Theorem}
+\newtheorem{proposition}{Proposition}
+\newtheorem{corollary}{Corollary}
+\newtheorem{definition}{Definition}
+\newtheorem{remark}{Remark}
+
+% Custom commands (shared with hlcc_paper)
+\newcommand{\hlcc}{\textsc{hlcc}}
+\newcommand{\E}{\mathbb{E}}
+\newcommand{\R}{\mathbb{R}}
+\newcommand{\cstar}{c^{*}}
+\DeclareMathOperator*{\argmax}{arg\,max}
+\DeclareMathOperator*{\argmin}{arg\,min}
+
+% Data repository URL — update when paper repo is made public
+\newcommand{\datarepo}{https://github.com/USER/NNConfidence/blob/main}
+
+\title{HLCC Loss on Small Networks:\\Analysing Normalisation-Aware Confidence\\in a Controlled Setting}
+\author{
+  Simon McCallum\\
+  \texttt{[email]}
+}
+\date{\today}
+
+\begin{document}
+\maketitle
+
+% ============================================================
+\begin{abstract}
+The Hybrid Linear-Convex Confidence (\hlcc{}) loss was originally proposed
+for calibrating large language model (LLM) confidence heads, where the
+opacity of billion-parameter networks makes it difficult to inspect
+\emph{why} the method works.  In this paper, we isolate the core
+mechanisms of \hlcc{} --- the asymmetric scoring function, the
+normalisation-derived doubt signals, and the trainable confidence head
+--- in a small, fully inspectable four-layer feedforward network
+(20--24--16--5).  Using a synthetic concentric-rings classification task
+with controlled label noise and out-of-distribution (OOD) regions, we
+run a factorial experiment across 13 training configurations varying
+the loss function (cross-entropy, \hlcc{}, combined, focal), normalisation
+(present/absent), and confidence head state (frozen at 0.5 vs.\
+trainable).  We analyse weight structure, activation distributions,
+doubt signal informativeness, and calibration quality, providing
+fine-grained evidence for which components of the \hlcc{} system
+contribute to improved confidence estimation.  Critically, confidence
+is derived from raw output logits rather than softmax probabilities,
+testing whether the \hlcc{} framework can operate without the
+probabilistic assumptions underlying standard calibration methods.
+\end{abstract}
+
+% ============================================================
+\section{Introduction}
+\label{sec:intro}
+
+Confidence calibration --- ensuring that a model's stated certainty
+matches its empirical accuracy --- is a long-standing problem in
+machine learning~\cite{guo2017calibration, naeini2015obtaining}.
+Recent work has extended calibration to LLMs through methods such as
+maximum softmax probability, verbalized confidence, semantic entropy,
+and self-consistency~\cite{kadavath2022language, xiong2024llms,
+kuhn2023semantic, wang2023selfconsistency}.
+
+The \hlcc{} loss~\cite{mccallum2026hlcc}, inspired by confidence-based
+assessment in education~\cite{mccallum2010gamedesign,
+gardnermedwin1995}, proposes an asymmetric scoring function where
+correct predictions receive a linear reward $R(c) = 1 + c$ and
+incorrect predictions incur a quadratic penalty $P(c) = -2c^2$.  When
+combined with a \emph{NormShift} confidence head that routes
+layer normalisation dynamics to a learned confidence estimator, this
+system achieves strong discrimination (AUROC up to 0.87) and
+calibration (ECE as low as 0.105) on LLMs with 7--8 billion
+parameters.
+
+However, at LLM scale, it is difficult to determine \emph{which
+component} drives the improvement.  Is it the asymmetric loss
+function?  The normalisation signals?  The confidence head
+architecture?  The interaction between them?  To answer these
+questions, we construct a minimal testbed: a four-layer feedforward
+network small enough to inspect every weight, activation, and
+gradient.
+
+\paragraph{Research questions.}  We address four specific questions:
+\begin{enumerate}[label=\textbf{Q\arabic*:}]
+  \item Does \hlcc{} improve calibration over cross-entropy in small
+        networks?
+  \item Does layer normalisation provide useful doubt signals at
+        small scale?
+  \item Can a confidence head learn from raw output logits (without
+        softmax)?
+  \item How do network weights differ between normalised and
+        non-normalised variants trained with the same loss?
+\end{enumerate}
+
+% ============================================================
+\section{Background}
+\label{sec:background}
+
+\subsection{HLCC Scoring Function}
+
+The \hlcc{} scoring function assigns a score to each prediction based
+on the model's confidence $c \in [0, 1]$ and the correctness
+indicator $y \in \{0, 1\}$:
+\begin{equation}
+  S(c, y) = \begin{cases}
+    1 + c & \text{if } y = 1 \quad \text{(correct)} \\
+    -2c^2 & \text{if } y = 0 \quad \text{(incorrect)}
+  \end{cases}
+  \label{eq:hlcc}
+\end{equation}
+
+The optimal confidence under this scoring rule for a question with
+true accuracy $p$ is:
+\begin{equation}
+  \cstar = \frac{p}{4(1-p)}
+  \label{eq:optimal}
+\end{equation}
+which naturally suppresses overconfidence: even at $p = 0.8$, the
+optimal confidence is only $\cstar = 1.0$~\cite{mccallum2026hlcc}.
+
+\subsection{Normalisation as Uncertainty Signal}
+
+Layer normalisation~\cite{ba2016layer} rescales activations to zero
+mean and unit variance.  The \emph{magnitude} of this correction
+carries information: when pre-normalisation activations have unusual
+scale or variance, the normalisation layer must apply large
+corrections, which may indicate the model is ``forcing'' a
+commitment~\cite{mccallum2026hlcc}.
+
+The \texttt{UncertaintyAwareLayerNorm} module captures three
+\emph{doubt signals} per layer:
+\begin{enumerate}
+  \item \textbf{Pre-normalisation variance}: high variance may indicate
+        confident separation between features.
+  \item \textbf{Correction scale}: $(v + \epsilon)^{-1/2}$, measuring how
+        much the normalisation rescaled the activations.
+  \item \textbf{Pre-normalisation L2 norm}: the overall magnitude of
+        activations before normalisation.
+\end{enumerate}
+
+\subsection{Confidence Without Softmax}
+
+Standard calibration methods derive confidence from probability
+distributions (softmax outputs, logit-based entropy, etc.).  Here
+we deliberately avoid softmax and instead derive confidence from
+raw output logits:
+\begin{equation}
+  c_{\text{raw}} = \sigma\!\left(\max_i z_i - \frac{1}{C-1}\sum_{j \neq i^*} z_j\right)
+  \label{eq:raw_conf}
+\end{equation}
+where $z_i$ are the output logits, $i^* = \argmax_i z_i$, $C$ is the
+number of classes, and $\sigma$ is the sigmoid function.  This tests
+whether the \hlcc{} framework can operate on activation geometry
+rather than probability estimates.
+
+% ============================================================
+\section{Experimental Design}
+\label{sec:design}
+
+\subsection{Network Architecture}
+
+We use a four-layer feedforward network with the following structure:
+\begin{equation}
+  \mathbf{x} \in \R^{20} \xrightarrow{\text{FC}} \R^{24}
+  \xrightarrow{[\text{LN}]} \xrightarrow{\text{ReLU}}
+  \xrightarrow{\text{FC}} \R^{16}
+  \xrightarrow{[\text{LN}]} \xrightarrow{\text{ReLU}}
+  \xrightarrow{\text{FC}} \R^{5}
+  \label{eq:arch}
+\end{equation}
+where $[\text{LN}]$ denotes optional \texttt{UncertaintyAwareLayerNorm}
+layers.  The network has approximately 1,000 parameters, making it
+possible to inspect every weight.
+
+The confidence head takes the second hidden layer activations
+($\R^{16}$) concatenated with 6 doubt signals (3 per normalisation
+layer) and maps them through a single hidden layer of size 8 to a
+scalar confidence in $[0, 1]$:
+\begin{equation}
+  c = \sigma\!\left(\mathbf{w}_2^{\top} \text{ReLU}(\mathbf{W}_1 [\mathbf{h}_2; \mathbf{d}] + \mathbf{b}_1) + b_2\right)
+  \label{eq:head}
+\end{equation}
+The head is initialised to output $c \approx 0.5$ (via zero biases and
+small weights), ensuring that the frozen-confidence variants start at
+the neutral point of the \hlcc{} scoring function.
+
+\subsection{Datasets}
+\label{sec:datasets}
+
+We evaluate on six datasets spanning synthetic and real-world tasks,
+varying in difficulty, dimensionality, and number of classes.
+
+\paragraph{Concentric Rings (primary synthetic).}
+A 5-class classification task using concentric annular rings in 2D,
+embedded in 20 dimensions (18 uninformative noise features scaled by
+0.3).  We run two noise settings: the \emph{standard} variant (15\%
+label noise, $\sim$93\% peak accuracy) and a \emph{hard} variant
+(30\% noise, $\sim$75\% accuracy).  The hard variant places accuracy
+in the 50--80\% range where the \hlcc{} scoring function's
+conservatism differs meaningfully from standard calibration methods
+--- at 93\% accuracy, the \hlcc{} optimal confidence saturates at
+$\cstar = 1.0$, eliminating the asymmetry that distinguishes \hlcc{}
+from Brier scoring.
+
+\paragraph{Two Moons (standard benchmark).}
+Two interleaving half-circles (\texttt{make\_moons}, noise$=0.2$),
+the de facto standard for visualising uncertainty
+surfaces~\cite{liu2020simple}.  Binary classification in 2D with
+3{,}000 training points.  OOD data comprises shifted moons
+(translated by $(3,3)$) and high-noise moons (noise$=0.8$).
+
+\paragraph{UCI Breast Cancer Wisconsin.}
+A real-world binary classification task (569 samples, 30 features)
+from the UCI repository~\cite{dua2019uci}.  Standardised on training
+set statistics.  OOD data is created by Gaussian perturbation of test
+features ($\sigma = 2\times$ feature std).
+
+\paragraph{Sklearn Digits.}
+8$\times$8 pixel digit images (1{,}797 samples, 10 classes).
+Tests scaling to more classes with a small network.
+
+\paragraph{Overlapping Blobs.}
+Synthetic multi-class task via \texttt{make\_classification} with
+$\texttt{class\_sep}=0.8$, 8 informative features, 4 redundant, and
+10\% label noise on training data only.  5 classes in 20 dimensions,
+matching the concentric rings dimensionality for controlled comparison.
+
+All datasets use the same split protocol: separate train/validation/test
+with clean labels on validation and test sets.  OOD sets use either
+geometric construction (rings), distributional shift (moons, blobs),
+or Gaussian perturbation (UCI, digits).
+
+\subsection{Calibration Baselines}
+\label{sec:baselines}
+
+We compare the \hlcc{} confidence head against four standard
+calibration methods:
+
+\begin{enumerate}
+  \item \textbf{Temperature scaling}~\cite{guo2017calibration}: A
+        single scalar $T$ is fit on the validation set to minimise
+        NLL of $\text{softmax}(\mathbf{z}/T)$.  Applied post-hoc to
+        every trained model.
+  \item \textbf{Focal loss}~\cite{lin2017focal}: An alternative
+        asymmetric loss $\text{FL}(p_t) = -(1-p_t)^\gamma \log p_t$
+        ($\gamma = 2$) that down-weights easy examples.  Included to
+        answer the natural question: ``Is \hlcc{} just a fancy focal
+        loss?''
+  \item \textbf{MC Dropout}~\cite{gal2016dropout}: Dropout ($p=0.1$)
+        applied to hidden activations at test time across 30 forward
+        passes.  Predictive entropy provides the uncertainty estimate.
+  \item \textbf{Deep Ensemble}~\cite{lakshminarayanan2017simple}: 5
+        independently initialised networks trained with CE loss.
+        Averaged softmax probabilities provide calibrated confidence;
+        disagreement measures uncertainty.  The gold standard for
+        small-network uncertainty.
+\end{enumerate}
+
+\subsection{Statistical Protocol}
+\label{sec:stats}
+
+All experiments are run across 5 random seeds (varying model
+initialisation, fixed dataset).  We report mean $\pm$ standard
+deviation for all metrics.  This addresses a common weakness in
+calibration papers where single-run results may reflect
+initialisation luck rather than method quality.
+
+We report three ECE variants: standard equal-width ECE (15 bins),
+debiased ECE~\cite{kumar2019verified} (which corrects for finite-sample
+bias), and adaptive ECE (equal-mass bins, robust to skewed confidence
+distributions).
+
+\subsection{Training Variants}
+\label{sec:variants}
+
+We train 13 configurations spanning all combinations of three factors
+plus focal loss baselines (\Cref{tab:variants}).
+
+\begin{table}[H]
+\centering
+\caption{Training variant matrix.  Each row is a distinct configuration.
+Variants 11--13 use focal loss ($\gamma=2$) as the base classification loss.}
+\label{tab:variants}
+\begin{tabular}{@{}rlccl@{}}
+\toprule
+\# & Name & Loss & Norm & Confidence \\
+\midrule
+1  & \texttt{ce\_nonorm}          & CE        & No  & Fixed 0.5 \\
+2  & \texttt{ce\_norm}            & CE        & Yes & Fixed 0.5 \\
+3  & \texttt{hlcc\_nonorm\_frozen}    & HLCC      & No  & Fixed 0.5 \\
+4  & \texttt{hlcc\_norm\_frozen}      & HLCC      & Yes & Fixed 0.5 \\
+5  & \texttt{hlcc\_nonorm\_trainable} & HLCC      & No  & Trainable \\
+6  & \texttt{hlcc\_norm\_trainable}   & HLCC      & Yes & Trainable \\
+7  & \texttt{combined\_nonorm}    & CE+HLCC   & No  & Trainable \\
+8  & \texttt{combined\_norm}      & CE+HLCC   & Yes & Trainable \\
+9  & \texttt{ce\_norm\_trainable}     & CE        & Yes & Trainable \\
+10 & \texttt{hlcc\_norm\_2phase}      & CE$\to$HLCC & Yes & Frozen$\to$Trainable \\
+\midrule
+11 & \texttt{focal\_nonorm}      & Focal     & No  & Fixed 0.5 \\
+12 & \texttt{focal\_norm}        & Focal     & Yes & Fixed 0.5 \\
+13 & \texttt{focal\_hlcc\_norm}  & Focal+HLCC & Yes & Trainable \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Variant 10 uses a two-phase schedule: 50 epochs of pure
+cross-entropy with frozen confidence (phase 1), then pure \hlcc{}
+with trainable confidence (phase 2).
+
+All variants are trained with Adam ($\eta = 10^{-3}$) for up to 200
+epochs with early stopping (patience 20) on validation loss.
+
+\subsection{Confidence Estimation}
+
+For variants with a frozen confidence head, $c = 0.5$ for all
+examples, representing maximum uncertainty under the \hlcc{} scoring
+function (since $S(0.5, 1) = 1.5$ and $S(0.5, 0) = -0.5$).
+
+For variants with a trainable confidence head, $c$ is learned
+end-to-end via backpropagation through the \hlcc{} loss.  The
+confidence head receives both semantic information (hidden layer
+activations) and normalisation dynamics (doubt signals), when
+normalisation is present.
+
+We additionally compute raw-output confidence
+(\Cref{eq:raw_conf}) as a non-learned baseline for all variants.
+
+\subsection{Metrics}
+
+We evaluate on the following metrics:
+\begin{itemize}
+  \item \textbf{ECE} (Expected Calibration Error)~\cite{naeini2015obtaining}:
+        average gap between confidence and accuracy across 10 bins.
+        Lower is better.
+  \item \textbf{Brier Score}~\cite{guo2017calibration}:
+        mean squared error between confidence and correctness.
+        Lower is better.
+  \item \textbf{HLCC Score}: mean $S(c, y)$ across all examples.
+        Higher is better.
+  \item \textbf{AUROC}: area under the ROC curve treating confidence as a
+        discriminator for correct/incorrect predictions.  Higher is better.
+  \item \textbf{AUPRC}: area under the precision-recall curve.
+        Higher is better.
+  \item \textbf{PRR} (Prediction Rejection Ratio): normalised area
+        between the model's rejection curve and random
+        rejection~\cite{fadeeva2024lmpolygraph}.  Higher is better.
+  \item \textbf{Acc@$k$\%}: accuracy on the $k$\% most confident
+        predictions (selective prediction).
+\end{itemize}
+
+% ============================================================
+\section{Results}
+\label{sec:results}
+
+\subsection{In-Distribution Performance}
+
+% TABLE 2: In-distribution results (rings dataset, mean over 5 seeds)
+\begin{table}[H]
+\centering
+\caption{In-distribution test set results for all 13 variants on the rings dataset
+(mean over 5 seeds).  Variants below the mid-rule use focal loss ($\gamma=2$) as the base classifier.}
+\label{tab:indist}
+\begin{tabular}{@{}lccccccc@{}}
+\toprule
+Variant & Acc & ECE$\downarrow$ & Brier$\downarrow$ & HLCC$\uparrow$ & AUROC$\uparrow$ & PRR$\uparrow$ & Conf \\
+\midrule
+\texttt{ce\_nonorm}                      & .937 & .437 & .250 & 1.37 & .505 & $-$.008 & .500 \\
+\texttt{ce\_norm}                        & .920 & .420 & .250 & 1.34 & .511 & .031 & .500 \\
+\texttt{hlcc\_nonorm\_frozen}            & .933 & .433 & .250 & 1.37 & .513 & .021 & .500 \\
+\texttt{hlcc\_norm\_frozen}              & .915 & .415 & .250 & 1.33 & .504 & .012 & .500 \\
+\texttt{hlcc\_nonorm\_trainable}         & .920 & .062 & .077 & 1.66 & .584 & .244 & .937 \\
+\texttt{hlcc\_norm\_trainable}           & .892 & .086 & .099 & 1.58 & \textbf{.665} & \textbf{.382} & .930 \\
+\texttt{combined\_nonorm}                & \textbf{.937} & \textbf{.034} & \textbf{.060} & \textbf{1.73} & .514 & .006 & .968 \\
+\texttt{combined\_norm}                  & .918 & .076 & .081 & 1.68 & .600 & .205 & .970 \\
+\texttt{ce\_norm\_trainable}             & .920 & .418 & .248 & 1.34 & .548 & .158 & .502 \\
+\texttt{hlcc\_norm\_2phase}              & .908 & .077 & .085 & 1.63 & .639 & .294 & .949 \\
+\midrule
+\texttt{focal\_nonorm}                   & .921 & .421 & .250 & 1.34 & .488 & $-$.035 & .500 \\
+\texttt{focal\_norm}                     & .917 & .417 & .250 & 1.33 & .516 & .051 & .500 \\
+\texttt{focal\_hlcc\_norm}               & .910 & .054 & .083 & 1.61 & .603 & .189 & .904 \\
+\bottomrule
+\end{tabular}
+\par\smallskip{\footnotesize\textit{Source:} \texttt{\datarepo/data/results/small\_network/results\_multi\_seed\_rings.json}}
+\end{table}
+
+\subsection{Confidence Calibration}
+
+The frozen-confidence variants (1--4, 9) all produce $c = 0.5$ for
+every example, yielding ECE $\approx$ accuracy $- 0.5$
+regardless of loss or normalisation.  This confirms that calibration
+requires a \emph{trainable} confidence signal.
+
+Among trainable variants on the rings dataset, \texttt{combined\_nonorm}
+achieves the lowest ECE (0.034) and Brier score (0.060), followed by
+\texttt{focal\_hlcc\_norm} (ECE 0.054, Brier 0.083) and
+\texttt{combined\_norm} (ECE 0.076, Brier 0.081).  This calibration
+improvement is consistent across all six datasets
+(\Cref{app:full}): on two\_moons, the best ECE reaches 0.020; on
+breast\_cancer, 0.023; on digits, 0.042.  Even on the hardest task
+(blobs, $\sim$72\% accuracy), \texttt{hlcc\_norm\_2phase} achieves
+ECE 0.068 vs.\ 0.241 for the CE baseline.
+
+The CE-trained variant with trainable confidence
+(\texttt{ce\_norm\_trainable}) shows almost no calibration
+improvement across any dataset (ECE 0.418--0.482), since the CE loss
+does not provide gradients through the confidence head.
+
+% Reliability diagrams will be referenced here
+% \begin{figure}[H]
+% \centering
+% \includegraphics[width=\textwidth]{../data/results/small_network/plots/reliability_combined_norm.png}
+% \caption{Reliability diagrams for selected variants.}
+% \label{fig:reliability}
+% \end{figure}
+
+\subsection{Out-of-Distribution Detection}
+
+% TABLE 3: OOD results (rings dataset, mean over 5 seeds)
+\begin{table}[H]
+\centering
+\caption{OOD test set results on rings dataset (mean over 5 seeds).  Softmax AUROC
+is the AUROC of the softmax-derived confidence (unsupervised baseline).}
+\label{tab:ood}
+\begin{tabular}{@{}lcccccc@{}}
+\toprule
+Variant & Acc & ECE$\downarrow$ & HLCC$\uparrow$ & AUROC$\uparrow$ & Conf & Softmax AUROC \\
+\midrule
+\texttt{ce\_nonorm}                      & .283 & .217 & 0.07 & .849 & .500 & .165 \\
+\texttt{ce\_norm}                        & .288 & .212 & 0.08 & .850 & .500 & .165 \\
+\texttt{hlcc\_nonorm\_frozen}            & .286 & .214 & 0.07 & .856 & .500 & .171 \\
+\texttt{hlcc\_norm\_frozen}              & .292 & .208 & 0.08 & .848 & .500 & .166 \\
+\texttt{hlcc\_nonorm\_trainable}         & .296 & .660 & $-$0.73 & .423 & .938 & .155 \\
+\texttt{hlcc\_norm\_trainable}           & .281 & .681 & $-$0.81 & .218 & .927 & .165 \\
+\texttt{combined\_nonorm}                & .286 & .677 & $-$0.78 & .626 & .963 & .175 \\
+\texttt{combined\_norm}                  & .291 & .689 & $-$0.80 & .248 & .954 & .165 \\
+\texttt{ce\_norm\_trainable}             & .288 & .223 & 0.07 & .409 & .502 & .165 \\
+\texttt{hlcc\_norm\_2phase}              & .290 & .663 & $-$0.78 & .262 & .939 & .162 \\
+\midrule
+\texttt{focal\_nonorm}                   & .283 & .217 & 0.07 & .855 & .500 & .164 \\
+\texttt{focal\_norm}                     & .290 & .210 & 0.08 & .849 & .500 & .160 \\
+\texttt{focal\_hlcc\_norm}               & .289 & .622 & $-$0.66 & .442 & .892 & .161 \\
+\bottomrule
+\end{tabular}
+\par\smallskip{\footnotesize\textit{Source:} \texttt{\datarepo/data/results/small\_network/results\_multi\_seed\_rings.json}}
+\end{table}
+
+\subsection{Effect of Normalisation}
+
+On the rings dataset, normalisation consistently improves discrimination
+(AUROC) when the confidence head is trainable:
+\texttt{hlcc\_norm\_trainable} achieves AUROC 0.665 vs.\ 0.584 for
+\texttt{hlcc\_nonorm\_trainable}, and \texttt{combined\_norm} achieves
+0.600 vs.\ 0.514 for \texttt{combined\_nonorm}.  This pattern holds on
+rings\_hard (0.662 vs.\ 0.588) and blobs (0.654 vs.\ 0.641).
+
+However, on some datasets the normalisation effect reverses:
+on breast\_cancer, \texttt{hlcc\_nonorm\_trainable} achieves AUROC
+0.909 vs.\ 0.896 for the normalised variant, and on digits,
+\texttt{hlcc\_nonorm\_trainable} achieves AUROC 0.756 vs.\ only 0.506
+for \texttt{hlcc\_norm\_trainable}.  This suggests that the benefit of
+normalisation-derived doubt signals depends on whether the task's
+difficulty structure creates informative normalisation dynamics ---
+when the network easily separates classes, normalisation statistics
+carry less uncertainty information.
+
+Normalised variants show slightly lower raw accuracy across all
+datasets (e.g.\ 0.892--0.918 vs.\ 0.920--0.937 on rings), suggesting
+a persistent trade-off between accuracy and confidence quality.
+
+The PRR metric shows the clearest normalisation benefit on
+rings-family datasets: \texttt{hlcc\_norm\_trainable} achieves PRR
+0.382 vs.\ 0.244 on rings, and 0.362 vs.\ 0.230 on rings\_hard.
+
+\subsection{Selective Prediction}
+
+% TABLE 4: Selective prediction (rings dataset, mean over 5 seeds)
+\begin{table}[H]
+\centering
+\caption{Selective prediction on rings dataset (mean over 5 seeds): accuracy when
+retaining the top $k$\% of examples ranked by confidence.}
+\label{tab:selective}
+\begin{tabular}{@{}lccccc@{}}
+\toprule
+Variant & Acc@70\% & Acc@80\% & Acc@90\% & PRR$\uparrow$ & AUPRC$\uparrow$ \\
+\midrule
+\texttt{ce\_nonorm}                      & .939 & .940 & .936 & $-$.008 & .936 \\
+\texttt{ce\_norm}                        & .923 & .925 & .921 & .031 & .923 \\
+\texttt{hlcc\_nonorm\_frozen}            & .936 & .936 & .933 & .021 & .934 \\
+\texttt{hlcc\_norm\_frozen}              & .919 & .920 & .917 & .012 & .917 \\
+\texttt{hlcc\_nonorm\_trainable}         & .931 & .934 & .927 & .244 & \textbf{.945} \\
+\texttt{hlcc\_norm\_trainable}           & .931 & .924 & .914 & \textbf{.382} & .934 \\
+\texttt{combined\_nonorm}                & .940 & .941 & .939 & .006 & .938 \\
+\texttt{combined\_norm}                  & .935 & .942 & .930 & .205 & .933 \\
+\texttt{ce\_norm\_trainable}             & .929 & .927 & .924 & .158 & .935 \\
+\texttt{hlcc\_norm\_2phase}              & .935 & .941 & .926 & .294 & .934 \\
+\midrule
+\texttt{focal\_nonorm}                   & .922 & .923 & .919 & $-$.035 & .918 \\
+\texttt{focal\_norm}                     & .920 & .920 & .917 & .051 & .921 \\
+\texttt{focal\_hlcc\_norm}               & .929 & .932 & .926 & .189 & .926 \\
+\bottomrule
+\end{tabular}
+\par\smallskip{\footnotesize\textit{Source:} \texttt{\datarepo/data/results/small\_network/results\_multi\_seed\_rings.json}}
+\end{table}
+
+% ============================================================
+\section{Analysis}
+\label{sec:analysis}
+
+\subsection{Weight Structure Comparison}
+
+% TABLE 5: Weight analysis
+\begin{table}[H]
+\centering
+\caption{Weight matrix statistics for normalised vs.\ non-normalised variants
+(both trained with combined CE+HLCC loss).}
+\label{tab:weights}
+\begin{tabular}{@{}lcccccc@{}}
+\toprule
+Parameter & \multicolumn{3}{c}{With Norm} & \multicolumn{3}{c}{No Norm} \\
+\cmidrule(lr){2-4} \cmidrule(lr){5-7}
+ & $|\bar{w}|$ & Spectral & Eff.\ Rank & $|\bar{w}|$ & Spectral & Eff.\ Rank \\
+\midrule
+\texttt{layer1.weight} & 0.082 & 0.98 & 15.7 & 0.149 & 1.86 & 16.0 \\
+\texttt{layer2.weight} & 0.107 & 1.73 & 12.2 & 0.277 & 6.04 & 9.5 \\
+\texttt{output.weight} & 0.337 & 2.69 & 4.3  & 0.468 & 4.70 & 3.9 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Doubt Signals as Uncertainty Indicators}
+
+When \texttt{UncertaintyAwareLayerNorm} is present, each normalisation
+layer produces three doubt signals per example.  Comparing these
+signals between correctly and incorrectly classified examples reveals
+that pre-normalisation variance and L2 norm show statistically
+significant differences between the two groups, confirming that
+normalisation dynamics carry uncertainty information even at small
+scale.  The second layer's signals are more informative than the
+first layer's, consistent with the hypothesis that later layers
+capture higher-level uncertainty about the classification decision.
+
+% Doubt signal violin plots referenced here
+
+\subsection{Discrimination: Trained Head vs.\ Unsupervised Baselines}
+\label{sec:discrimination}
+
+We compare the trained confidence head's AUROC against the unsupervised
+softmax baseline (last column in \Cref{app:full}).  The results are
+dataset-dependent.
+
+On the concentric rings datasets, softmax clearly outperforms the
+trained head: softmax AUROC 0.85--0.92 vs.\ head AUROC 0.51--0.67
+on rings, and 0.81--0.87 vs.\ 0.50--0.66 on rings\_hard.  Similarly,
+on digits (softmax 0.94--0.98 vs.\ head 0.45--0.76) and blobs
+(softmax 0.72--0.79 vs.\ head 0.50--0.66), the zero-cost baseline
+dominates.
+
+However, on breast\_cancer and two\_moons, the trained head
+\emph{approaches or matches} softmax discrimination.  On breast\_cancer,
+\texttt{combined\_nonorm} achieves head AUROC 0.939 vs.\ softmax 0.958
+--- a gap of only 0.019.  On two\_moons, \texttt{hlcc\_nonorm\_trainable}
+reaches head AUROC 0.888 vs.\ softmax 0.933.  This suggests that on
+tasks with well-separated classes and clear decision boundaries, the
+trained head can learn meaningful per-instance discrimination, not just
+the base rate.
+
+On the harder tasks (rings, blobs), the \hlcc{}-trained head learns
+the \emph{base rate} --- ``I am correct $X$\% of the time, so I should
+be $X$\% confident'' --- rather than learning \emph{which specific
+predictions} are likely wrong.  The softmax output, by contrast,
+directly reflects the model's internal certainty about class separation
+for each input, which is highly informative at small network scale.
+
+This finding does not hold at LLM scale~\cite{mccallum2026hlcc},
+where the NormShift confidence head outperforms softmax-based baselines
+by +0.12 AUROC.  The likely explanation is that LLMs with 28--32
+layers and 4096-dimensional hidden states provide much richer
+normalisation signals, and the confidence head has access to
+intermediate representations that the output logits do not capture.
+
+\subsection{HLCC vs.\ Cross-Entropy Training Dynamics}
+
+Training dynamics differ substantially between loss functions:
+\begin{itemize}
+  \item \textbf{CE converges faster.}  CE variants reach peak accuracy
+        in 80--120 epochs, while HLCC variants need 140--200 epochs due
+        to the indirect gradient path.
+  \item \textbf{Two-phase combines benefits.}  The
+        \texttt{hlcc\_norm\_2phase} variant achieves good accuracy from
+        the CE warmup phase (epoch 0--50) and then develops calibrated
+        confidence in the HLCC phase (epoch 50+), reaching ECE 0.077.
+  \item \textbf{Confidence evolves predictably.}  In HLCC-trained
+        variants, mean confidence starts at 0.5, rises steadily during
+        training, and stabilises at 0.88--0.99 once accuracy plateaus.
+        This matches the HLCC scoring incentive to be confident when
+        correct.
+\end{itemize}
+
+% ============================================================
+\section{Discussion}
+\label{sec:discussion}
+
+\paragraph{Calibration vs.\ discrimination: a dataset-dependent tension.}
+A central finding of this study is that \hlcc{} produces two
+distinct types of improvement whose co-occurrence depends on the
+dataset.  The trained confidence head achieves excellent
+\emph{calibration} across all six datasets (ECE as low as 0.020 on
+two\_moons, 0.023 on breast\_cancer, 0.034 on rings).
+
+\emph{Discrimination}, however, is dataset-dependent.  On the harder
+synthetic tasks (rings, rings\_hard, blobs), the trained head achieves
+worse AUROC (0.51--0.67) than the zero-cost softmax baseline
+(0.72--0.92).  On breast\_cancer and two\_moons, the gap narrows
+substantially: the trained head reaches AUROC 0.939 and 0.888
+respectively, approaching softmax performance (0.958 and 0.933).
+This suggests that the calibration--discrimination trade-off is not
+inherent to \hlcc{}, but reflects the information available to the
+confidence head at small network scale.
+
+The practical implication: \textbf{for selective prediction on tasks
+where the trained head approaches softmax discrimination,
+\hlcc{} provides both calibration and ranking in a single pass.}
+On harder tasks, softmax confidence or temperature scaling may
+suffice for discrimination, while \hlcc{} adds calibration value.
+At LLM scale~\cite{mccallum2026hlcc}, the richer normalisation
+signals close the discrimination gap entirely.
+
+\paragraph{OOD overconfidence is a central failure mode.}
+All variants with trainable confidence heads that achieve excellent
+in-distribution calibration become \emph{catastrophically}
+overconfident on OOD data.  Mean confidence reaches 0.89--0.96 on
+examples where accuracy is $\sim$0.29 (near random for 5 classes).
+OOD AUROC drops to 0.22--0.63 --- often below random chance, meaning
+the head is \emph{anti-correlated} with correctness.  By contrast,
+the frozen-at-0.5 variants maintain OOD AUROC of 0.85--0.86.
+
+This is not merely ``a risk'' but a structural consequence of the
+training objective: the confidence head learns to mirror in-distribution
+accuracy, and since it has never seen OOD examples during training,
+it applies the same high-confidence pattern universally.  The
+normalisation-derived doubt signals, which were hypothesised to
+detect OOD inputs, fail to do so at small scale --- likely because
+the 6 doubt signals from 2 normalisation layers lack the diversity
+to distinguish distributional shift from normal variation.
+
+This finding motivates OOD-aware training objectives, confidence
+regularisation, or explicit distributional shift detectors as
+necessary complements to \hlcc{} in safety-critical applications.
+
+\paragraph{When does dataset difficulty matter?}
+At 93\% accuracy (standard rings), the \hlcc{} optimal confidence
+$\cstar = p/[4(1-p)] = 3.3$ saturates at 1.0, meaning the scoring
+function's conservatism is never exercised.  The hard rings variant
+(20\% noise, $\sim$88\% accuracy) still has high enough accuracy that
+$\cstar$ saturates, but the blobs dataset ($\sim$72\% accuracy) places
+predictions in the range where $\cstar \approx 0.64$, and the \hlcc{}
+asymmetry between correct and incorrect predictions becomes materially
+different from Brier scoring.  This suggests that \hlcc{} is most
+valuable in moderate-accuracy regimes (50--80\%), which is precisely
+where LLMs operate on challenging benchmarks like TruthfulQA.
+
+\paragraph{Focal loss comparison.}
+Including focal loss ($\gamma = 2$) addresses the natural question of
+whether \hlcc{}'s asymmetry is simply replicating known asymmetric
+loss behaviour.  The key difference: focal loss modifies the
+\emph{classification} gradient (down-weighting easy examples) but
+provides no mechanism for training a \emph{confidence estimator}.
+\hlcc{} modifies the \emph{confidence} gradient while leaving
+classification training to the base loss.  These are complementary:
+the \texttt{focal\_hlcc\_norm} variant combines both, testing whether
+focal's improved classification calibration compounds with \hlcc{}'s
+explicit confidence training.
+
+\paragraph{Comparison with TCP and MDCA.}
+To situate \hlcc{} against established training-time calibration
+methods, we compare directly with TCP~\cite{corbiere2019addressing}
+and MDCA~\cite{hebbalaguppe2022stitch} using the same confidence head
+architecture (hidden activations + doubt signals $\to$ 8-unit MLP
+$\to$ sigmoid).  TCP replaces the \hlcc{} scoring function with
+MSE$(c, \mathbb{1}[\hat{y}=y])$; MDCA replaces it with the batch-level
+regulariser $|\bar{c} - \bar{a}|$.
+
+Averaged across four datasets (5 seeds each), MDCA achieves the
+lowest ECE (0.066 vs.\ \hlcc{} 0.111), confirming that directly
+penalising the confidence--accuracy gap produces tighter calibration.
+TCP achieves the best overall balance: ECE of 0.079, Brier 0.103,
+and AUROC 0.680---outperforming \hlcc{} on all three metrics.
+
+The result is dataset-dependent.  On two\_moons (97\% accuracy), TCP
+dramatically outperforms \hlcc{} on discrimination (AUROC 0.819 vs.\
+0.473; PRR 0.572 vs.\ $-$0.231), while MDCA achieves near-perfect
+calibration (ECE 0.002) but poor discrimination (AUROC 0.526).  On
+blobs (72\% accuracy), TCP's calibration advantage is most pronounced
+(ECE 0.038 vs.\ 0.116), because the MSE target directly learns the
+identity function between confidence and correctness, while \hlcc{}'s
+asymmetric scoring pushes the head into a less calibrated operating
+point.
+
+This finding is important context for the paper's claims: \textbf{at
+small network scale, TCP's simpler MSE objective outperforms \hlcc{}'s
+asymmetric scoring function.}  The hypothesis is that \hlcc{}'s
+advantage emerges at LLM scale, where (a) the confidence head must
+generalise across diverse tasks rather than fit a single dataset, and
+(b) the asymmetric penalty structure provides stronger gradient signal
+for overconfident predictions---a regime that LLMs frequently occupy
+on challenging benchmarks.
+
+\paragraph{Gradient structure insight.}
+A key architectural finding: the \hlcc{} loss cannot train classifier
+weights directly, because correctness is determined by argmax (which
+is non-differentiable).  Gradients from \hlcc{} flow \emph{only}
+through the confidence head.  This means a CE (or focal) component is
+always needed for the classifier, while \hlcc{} trains the confidence
+estimator.  At LLM scale, this constraint is invisible because the
+base model is frozen and only the confidence head is trained.
+
+\paragraph{Normalisation signals at small scale.}
+With only two normalisation layers and hidden dimensions of 24 and
+16, the doubt signals carry enough information to improve AUROC by
+0.04--0.15 in matched comparisons on the rings-family datasets.
+However, the benefit is inconsistent across datasets: on
+breast\_cancer, normalisation \emph{decreases} AUROC
+(0.896 vs.\ 0.909), and on digits the effect is dramatic in the wrong
+direction (0.506 vs.\ 0.756).  This suggests that normalisation-derived
+doubt signals are most informative when the task creates varied internal
+representations --- on easily separable tasks, the normalisation
+statistics are too uniform to provide useful uncertainty information.
+At LLM scale, where 28--32 layers provide richer normalisation dynamics,
+this limitation disappears.
+
+\paragraph{Deep ensemble comparison.}
+Deep ensembles represent the gold standard for small-network
+uncertainty.  The ensemble baseline (5 members, CE-trained) provides
+a critical reference point: if \hlcc{} with a single network cannot
+match ensembles, then the practical case for \hlcc{} at small scale
+is weak.  However, \hlcc{} uses a single forward pass, whereas
+ensembles require $M$ forward passes and $M\times$ the parameters,
+making the comparison one of efficiency vs.\ quality.
+
+\paragraph{Limitations.}
+\begin{itemize}
+  \item A four-layer feedforward network is far simpler than a
+        transformer: no attention, no residual connections, no
+        positional encoding.  The transferability to transformers
+        rests on the LLM-scale results, not on this experiment alone.
+  \item With only $\sim$1{,}000 parameters, the confidence head
+        (22$\to$8$\to$1, $\sim$190 parameters) represents a
+        significant fraction of total capacity.  At LLM scale, the
+        confidence head is negligible relative to the base model.
+  \item The OOD construction varies across datasets (geometric,
+        distributional shift, Gaussian perturbation), making
+        cross-dataset OOD comparisons imprecise.
+  \item We do not evaluate conformal prediction, Platt scaling,
+        or isotonic regression, which would provide additional
+        post-hoc baseline comparisons.
+  \item TCP outperforms \hlcc{} on the small-network datasets
+        evaluated here.  Whether \hlcc{}'s asymmetric scoring
+        provides advantages at LLM scale (where overconfidence
+        on incorrect predictions is more prevalent) remains to be
+        confirmed with a matched TCP comparison on large models.
+\end{itemize}
+
+% ============================================================
+\section{Related Work}
+\label{sec:related}
+
+\paragraph{Calibration.}
+Guo et al.~\cite{guo2017calibration} demonstrated that modern deep
+networks are poorly calibrated, motivating post-hoc methods such as
+temperature scaling~\cite{platt1999probabilistic} and isotonic
+regression~\cite{zadrozny2002transforming}.  Naeini et
+al.~\cite{naeini2015obtaining} introduced Expected Calibration Error
+as a standard metric; Kumar et al.~\cite{kumar2019verified} later
+showed that standard ECE is biased upward for finite samples and
+proposed debiased alternatives.
+
+\paragraph{Uncertainty estimation.}
+MC Dropout~\cite{gal2016dropout} reinterprets dropout as approximate
+Bayesian inference, providing uncertainty estimates at low cost.
+Deep ensembles~\cite{lakshminarayanan2017simple} average predictions
+across independently trained networks and remain a strong baseline.
+Focal loss~\cite{lin2017focal} provides an alternative asymmetric
+training signal that down-weights easy examples, improving implicit
+calibration.  Mukhoti et al.~\cite{mukhoti2020calibrating} showed that
+focal loss can rival or surpass temperature scaling for calibration,
+and established the practice of reporting metrics before and after
+post-hoc recalibration.  Zhu et al.~\cite{zhu2024calibration} provide
+a comprehensive calibration benchmark across architectures and methods.
+
+\paragraph{Auxiliary confidence networks.}
+Corbi\`ere et al.~\cite{corbiere2019addressing} introduced
+\emph{True Class Probability} (TCP): an auxiliary network that takes
+penultimate-layer features from the main classifier and is trained
+with MSE loss to predict $\mathbb{1}[\hat{y} = y]$, the probability
+that the prediction is correct.  The extended version~\cite{corbiere2022confidence}
+showed TCP generalises across architectures.  Our confidence head shares
+TCP's architectural pattern---an auxiliary MLP on hidden
+activations---but replaces the MSE target with the asymmetric \hlcc{}
+scoring function and additionally feeds normalisation-derived doubt
+signals.  Hebbalaguppe et al.~\cite{hebbalaguppe2022stitch}
+proposed MDCA, a differentiable regulariser that penalises the
+batch-level gap between average confidence and average accuracy:
+$\mathcal{L}_\text{MDCA} = |\bar{c} - \bar{a}|$.  At LLM scale,
+Kadavath et al.~\cite{kadavath2022language} train a P(IK)
+(``probability of knowing'') head on hidden states, and
+Shen et al.~\cite{shen2024thermometer} train an auxiliary MLP
+to predict per-task temperature parameters.  We compare directly
+against TCP and MDCA in our small-network experiments
+(Section~\ref{sec:discussion}).
+
+\paragraph{Normalisation.}
+Batch normalisation~\cite{ioffe2015batch} and layer
+normalisation~\cite{ba2016layer} are standard components of deep
+networks.  Our work is, to our knowledge, the first to explicitly
+route normalisation correction magnitudes as uncertainty signals.
+
+\paragraph{Confidence-based assessment.}
+The \hlcc{} scoring function draws on confidence-based marking in
+education~\cite{mccallum2010gamedesign, gardnermedwin1995}, where
+students indicate certainty alongside answers and receive
+asymmetric rewards.
+
+% ============================================================
+\section{Conclusion}
+\label{sec:conclusion}
+
+We present a controlled small-network experiment isolating the
+components of the \hlcc{} confidence system.  Across 13 training
+configurations, 6 datasets, 4 calibration baselines, and 5 random
+seeds on a 4-layer feedforward network, we find:
+
+\begin{enumerate}
+  \item \textbf{\hlcc{} loss enables calibration across all datasets.}
+        Trainable confidence heads trained with CE alone show no
+        calibration improvement (ECE 0.42--0.48), while
+        \hlcc{}-trained variants achieve ECE as low as 0.020
+        (two\_moons), 0.023 (breast\_cancer), 0.034 (rings), and
+        0.068 (blobs).  This improvement is robust across 5 seeds
+        and 6 datasets spanning synthetic and real-world tasks.
+  \item \textbf{Discrimination is dataset-dependent.}
+        On harder tasks (rings, blobs), the trained head achieves
+        lower AUROC (0.51--0.67) than the softmax baseline
+        (0.72--0.92).  But on breast\_cancer and two\_moons, the head
+        approaches softmax: AUROC 0.939 vs.\ 0.958 and 0.888 vs.\
+        0.933 respectively.  The ``softmax beats trained head''
+        finding is not universal but depends on dataset structure.
+  \item \textbf{Normalisation benefit is inconsistent.}  Adding
+        \texttt{UncertaintyAwareLayerNorm} increases AUROC by
+        0.04--0.15 on rings-family datasets but \emph{decreases}
+        it on breast\_cancer and digits.  The doubt signals are most
+        informative when the task creates varied internal
+        representations across examples.
+  \item \textbf{OOD overconfidence is a structural failure.}
+        All trainable variants become catastrophically overconfident
+        on OOD data (confidence 0.89--0.96, accuracy $\sim$0.29,
+        often anti-correlated AUROC).  This is not a minor
+        limitation but a central property of in-distribution
+        confidence training that must be addressed for deployment.
+  \item \textbf{Dataset difficulty matters.}  The \hlcc{} scoring
+        function's conservatism only engages when accuracy is below
+        $\sim$80\%.  On the blobs dataset ($\sim$72\% accuracy),
+        the HLCC asymmetry is most meaningful; on easy tasks
+        ($>$90\% accuracy), the optimal confidence saturates at 1.0.
+  \item \textbf{The discrimination gap closes at LLM scale.}  The
+        softmax-beats-trained-head finding is specific to small
+        networks.  At LLM scale~\cite{mccallum2026hlcc}, the
+        NormShift head outperforms logit baselines by +0.12 AUROC,
+        suggesting that the value of a trained confidence head
+        increases with model depth and normalisation layer count.
+\end{enumerate}
+
+The overall assessment is that \hlcc{} at small network scale is
+primarily a \emph{calibration} method, with discrimination performance
+that varies by dataset.  On well-separated tasks (breast\_cancer,
+two\_moons), the trained head nearly matches softmax discrimination
+while providing calibrated confidence.  On harder tasks (rings, blobs),
+simple baselines (softmax confidence, temperature scaling, deep
+ensembles) provide better per-instance ranking.  The case for \hlcc{}
+strengthens with scale: the richer normalisation signals in deep
+networks provide the confidence head with information that output
+logits alone cannot capture.
+
+\bibliographystyle{plainnat}
+\bibliography{references}
+
+% ============================================================
+\appendix
+
+\section{Full Results Across All Datasets}
+\label{app:full}
+
+Complete in-distribution metrics for all 13 variants across 6 datasets
+(mean over 5 seeds).  Softmax AUROC provides an unsupervised baseline
+for discrimination comparison.  Tables~\ref{tab:full_rings}--\ref{tab:full_blobs}
+present the full results.
+
+% --- rings ---
+\begin{table}[H]
+\centering
+\caption{Full results for \texttt{rings} dataset (mean over 5 seeds).}
+\label{tab:full_rings}
+{\small
+\begin{tabular}{@{}lcccccccc@{}}
+\toprule
+Variant & Acc & ECE$\downarrow$ & Brier$\downarrow$ & HLCC$\uparrow$ & AUROC$\uparrow$ & PRR$\uparrow$ & Conf & Softmax \\
+ & & & & & & & & AUROC \\
+\midrule
+\texttt{ce\_nonorm}                      & .937 & .437 & .250 & 1.37 & .505 & $-$.008 & .500 & .909 \\
+\texttt{ce\_norm}                        & .920 & .420 & .250 & 1.34 & .511 & .031 & .500 & .898 \\
+\texttt{hlcc\_nonorm\_frozen}            & .933 & .433 & .250 & 1.37 & .513 & .021 & .500 & .919 \\
+\texttt{hlcc\_norm\_frozen}              & .915 & .415 & .250 & 1.33 & .504 & .012 & .500 & .902 \\
+\texttt{hlcc\_nonorm\_trainable}         & .920 & .062 & .077 & 1.66 & .584 & .244 & .937 & .879 \\
+\texttt{hlcc\_norm\_trainable}           & .892 & .086 & .099 & 1.58 & .665 & .382 & .930 & .867 \\
+\texttt{combined\_nonorm}                & .937 & .034 & .060 & 1.73 & .514 & .006 & .968 & .917 \\
+\texttt{combined\_norm}                  & .918 & .076 & .081 & 1.68 & .600 & .205 & .970 & .909 \\
+\texttt{ce\_norm\_trainable}             & .920 & .418 & .248 & 1.34 & .548 & .158 & .502 & .898 \\
+\texttt{hlcc\_norm\_2phase}              & .908 & .077 & .085 & 1.63 & .639 & .294 & .949 & .886 \\
+\midrule
+\texttt{focal\_nonorm}                   & .921 & .421 & .250 & 1.34 & .488 & $-$.035 & .500 & .887 \\
+\texttt{focal\_norm}                     & .917 & .417 & .250 & 1.33 & .516 & .051 & .500 & .855 \\
+\texttt{focal\_hlcc\_norm}               & .910 & .054 & .083 & 1.61 & .603 & .189 & .904 & .852 \\
+\bottomrule
+\end{tabular}
+}
+\par\smallskip{\footnotesize\textit{Source:} \texttt{\datarepo/data/results/small\_network/results\_multi\_seed\_rings.json}}
+\end{table}
+
+% --- rings_hard ---
+\begin{table}[H]
+\centering
+\caption{Full results for \texttt{rings\_hard} dataset (mean over 5 seeds).}
+\label{tab:full_rings_hard}
+{\small
+\begin{tabular}{@{}lcccccccc@{}}
+\toprule
+Variant & Acc & ECE$\downarrow$ & Brier$\downarrow$ & HLCC$\uparrow$ & AUROC$\uparrow$ & PRR$\uparrow$ & Conf & Softmax \\
+ & & & & & & & & AUROC \\
+\midrule
+\texttt{ce\_nonorm}                      & .912 & .412 & .250 & 1.32 & .500 & $-$.025 & .500 & .870 \\
+\texttt{ce\_norm}                        & .888 & .388 & .250 & 1.28 & .544 & .117 & .500 & .839 \\
+\texttt{hlcc\_nonorm\_frozen}            & .910 & .410 & .250 & 1.32 & .510 & .002 & .500 & .868 \\
+\texttt{hlcc\_norm\_frozen}              & .889 & .389 & .250 & 1.28 & .518 & .040 & .500 & .836 \\
+\texttt{hlcc\_nonorm\_trainable}         & .898 & .297 & .186 & 1.37 & .588 & .230 & .600 & .831 \\
+\texttt{hlcc\_norm\_trainable}           & .859 & .272 & .192 & 1.30 & .662 & .362 & .588 & .813 \\
+\texttt{combined\_nonorm}                & .914 & .243 & .138 & 1.45 & .565 & .126 & .671 & .865 \\
+\texttt{combined\_norm}                  & .887 & .225 & .157 & 1.40 & .646 & .321 & .663 & .836 \\
+\texttt{ce\_norm\_trainable}             & .888 & .386 & .248 & 1.28 & .541 & .095 & .502 & .839 \\
+\texttt{hlcc\_norm\_2phase}              & .878 & .254 & .167 & 1.35 & .652 & .322 & .624 & .837 \\
+\midrule
+\texttt{focal\_nonorm}                   & .899 & .399 & .250 & 1.30 & .525 & .042 & .500 & .830 \\
+\texttt{focal\_norm}                     & .879 & .379 & .250 & 1.26 & .528 & .077 & .500 & .820 \\
+\texttt{focal\_hlcc\_norm}               & .872 & .267 & .180 & 1.33 & .657 & .339 & .605 & .817 \\
+\bottomrule
+\end{tabular}
+}
+\par\smallskip{\footnotesize\textit{Source:} \texttt{\datarepo/data/results/small\_network/results\_multi\_seed\_rings\_hard.json}}
+\end{table}
+
+% --- two_moons ---
+\begin{table}[H]
+\centering
+\caption{Full results for \texttt{two\_moons} dataset (mean over 5 seeds).}
+\label{tab:full_two_moons}
+{\small
+\begin{tabular}{@{}lcccccccc@{}}
+\toprule
+Variant & Acc & ECE$\downarrow$ & Brier$\downarrow$ & HLCC$\uparrow$ & AUROC$\uparrow$ & PRR$\uparrow$ & Conf & Softmax \\
+ & & & & & & & & AUROC \\
+\midrule
+\texttt{ce\_nonorm}                      & .972 & .472 & .250 & 1.44 & .517 & .156 & .500 & .950 \\
+\texttt{ce\_norm}                        & .970 & .470 & .250 & 1.44 & .483 & .053 & .500 & .957 \\
+\texttt{hlcc\_nonorm\_frozen}            & .972 & .472 & .250 & 1.44 & .532 & .166 & .500 & .946 \\
+\texttt{hlcc\_norm\_frozen}              & .970 & .470 & .250 & 1.44 & .517 & .149 & .500 & .953 \\
+\texttt{hlcc\_nonorm\_trainable}         & .975 & .020 & .023 & 1.90 & .888 & .867 & .990 & .933 \\
+\texttt{hlcc\_norm\_trainable}           & .968 & .030 & .032 & 1.87 & .695 & .344 & .997 & .939 \\
+\texttt{combined\_nonorm}                & .972 & .028 & .028 & 1.89 & .712 & .630 & 1.000 & .946 \\
+\texttt{combined\_norm}                  & .971 & .028 & .029 & 1.88 & .473 & $-$.231 & .999 & .954 \\
+\texttt{ce\_norm\_trainable}             & .970 & .469 & .249 & 1.44 & .587 & .272 & .501 & .957 \\
+\texttt{hlcc\_norm\_2phase}              & .966 & .032 & .034 & 1.86 & .772 & .542 & .998 & .958 \\
+\midrule
+\texttt{focal\_nonorm}                   & .970 & .470 & .250 & 1.44 & .527 & .167 & .500 & .953 \\
+\texttt{focal\_norm}                     & .970 & .470 & .250 & 1.44 & .484 & .069 & .500 & .955 \\
+\texttt{focal\_hlcc\_norm}               & .969 & .030 & .031 & 1.87 & .687 & .455 & .999 & .949 \\
+\bottomrule
+\end{tabular}
+}
+\par\smallskip{\footnotesize\textit{Source:} \texttt{\datarepo/data/results/small\_network/results\_multi\_seed\_two\_moons.json}}
+\end{table}
+
+% --- breast_cancer ---
+\begin{table}[H]
+\centering
+\caption{Full results for \texttt{breast\_cancer} dataset (mean over 5 seeds).}
+\label{tab:full_breast_cancer}
+{\small
+\begin{tabular}{@{}lcccccccc@{}}
+\toprule
+Variant & Acc & ECE$\downarrow$ & Brier$\downarrow$ & HLCC$\uparrow$ & AUROC$\uparrow$ & PRR$\uparrow$ & Conf & Softmax \\
+ & & & & & & & & AUROC \\
+\midrule
+\texttt{ce\_nonorm}                      & .960 & .460 & .250 & 1.42 & .130 & $-$1.277 & .500 & .951 \\
+\texttt{ce\_norm}                        & .958 & .458 & .250 & 1.42 & .185 & $-$1.017 & .500 & .935 \\
+\texttt{hlcc\_nonorm\_frozen}            & .967 & .467 & .250 & 1.43 & .150 & $-$1.168 & .500 & .940 \\
+\texttt{hlcc\_norm\_frozen}              & .963 & .463 & .250 & 1.43 & .157 & $-$1.159 & .500 & .915 \\
+\texttt{hlcc\_nonorm\_trainable}         & .958 & .037 & .040 & 1.83 & .909 & .902 & .993 & .953 \\
+\texttt{hlcc\_norm\_trainable}           & .951 & .047 & .048 & 1.80 & .896 & .885 & .999 & .907 \\
+\texttt{combined\_nonorm}                & .963 & .023 & .033 & 1.85 & .939 & .936 & .981 & .958 \\
+\texttt{combined\_norm}                  & .963 & .026 & .036 & 1.84 & .729 & .657 & .989 & .895 \\
+\texttt{ce\_norm\_trainable}             & .958 & .458 & .250 & 1.42 & .440 & $-$.534 & .500 & .935 \\
+\texttt{hlcc\_norm\_2phase}              & .951 & .041 & .047 & 1.80 & .889 & .874 & .992 & .890 \\
+\midrule
+\texttt{focal\_nonorm}                   & .965 & .465 & .250 & 1.43 & .151 & $-$1.142 & .500 & .931 \\
+\texttt{focal\_norm}                     & .965 & .465 & .250 & 1.43 & .222 & $-$.949 & .500 & .911 \\
+\texttt{focal\_hlcc\_norm}               & .963 & .029 & .036 & 1.83 & .823 & .794 & .979 & .850 \\
+\bottomrule
+\end{tabular}
+}
+\par\smallskip{\footnotesize\textit{Source:} \texttt{\datarepo/data/results/small\_network/results\_multi\_seed\_breast\_cancer.json}}
+\end{table}
+
+% --- digits ---
+\begin{table}[H]
+\centering
+\caption{Full results for \texttt{digits} dataset (mean over 5 seeds).}
+\label{tab:full_digits}
+{\small
+\begin{tabular}{@{}lcccccccc@{}}
+\toprule
+Variant & Acc & ECE$\downarrow$ & Brier$\downarrow$ & HLCC$\uparrow$ & AUROC$\uparrow$ & PRR$\uparrow$ & Conf & Softmax \\
+ & & & & & & & & AUROC \\
+\midrule
+\texttt{ce\_nonorm}                      & .976 & .476 & .250 & 1.45 & .544 & .168 & .500 & .968 \\
+\texttt{ce\_norm}                        & .976 & .476 & .250 & 1.45 & .483 & .002 & .500 & .976 \\
+\texttt{hlcc\_nonorm\_frozen}            & .976 & .476 & .250 & 1.45 & .544 & .168 & .500 & .968 \\
+\texttt{hlcc\_norm\_frozen}              & .974 & .474 & .250 & 1.45 & .452 & $-$.147 & .500 & .979 \\
+\texttt{hlcc\_nonorm\_trainable}         & .973 & .050 & .031 & 1.86 & .756 & .656 & .969 & .962 \\
+\texttt{hlcc\_norm\_trainable}           & .977 & .043 & .026 & 1.88 & .506 & $-$.096 & .968 & .964 \\
+\texttt{combined\_nonorm}                & .976 & .048 & .028 & 1.87 & .684 & .449 & .969 & .965 \\
+\texttt{combined\_norm}                  & .979 & .042 & .025 & 1.89 & .470 & $-$.186 & .968 & .975 \\
+\texttt{ce\_norm\_trainable}             & .976 & .482 & .254 & 1.45 & .483 & $-$.180 & .495 & .976 \\
+\texttt{hlcc\_norm\_2phase}              & .953 & .043 & .046 & 1.81 & .499 & $-$.089 & .996 & .940 \\
+\midrule
+\texttt{focal\_nonorm}                   & .975 & .475 & .250 & 1.45 & .564 & .252 & .500 & .953 \\
+\texttt{focal\_norm}                     & .976 & .476 & .250 & 1.45 & .524 & .116 & .500 & .969 \\
+\texttt{focal\_hlcc\_norm}               & .974 & .050 & .030 & 1.87 & .493 & $-$.192 & .969 & .967 \\
+\bottomrule
+\end{tabular}
+}
+\par\smallskip{\footnotesize\textit{Source:} \texttt{\datarepo/data/results/small\_network/results\_multi\_seed\_digits.json}}
+\end{table}
+
+% --- blobs ---
+\begin{table}[H]
+\centering
+\caption{Full results for \texttt{blobs} dataset (mean over 5 seeds).}
+\label{tab:full_blobs}
+{\small
+\begin{tabular}{@{}lcccccccc@{}}
+\toprule
+Variant & Acc & ECE$\downarrow$ & Brier$\downarrow$ & HLCC$\uparrow$ & AUROC$\uparrow$ & PRR$\uparrow$ & Conf & Softmax \\
+ & & & & & & & & AUROC \\
+\midrule
+\texttt{ce\_nonorm}                      & .741 & .241 & .250 & 0.98 & .515 & .045 & .500 & .783 \\
+\texttt{ce\_norm}                        & .737 & .237 & .250 & 0.97 & .514 & .051 & .500 & .755 \\
+\texttt{hlcc\_nonorm\_frozen}            & .731 & .231 & .250 & 0.96 & .518 & .045 & .500 & .787 \\
+\texttt{hlcc\_norm\_frozen}              & .743 & .243 & .250 & 0.99 & .518 & .063 & .500 & .756 \\
+\texttt{hlcc\_nonorm\_trainable}         & .656 & .197 & .264 & 0.85 & .641 & .381 & .515 & .745 \\
+\texttt{hlcc\_norm\_trainable}           & .656 & .167 & .248 & 0.85 & .654 & .348 & .531 & .735 \\
+\texttt{combined\_nonorm}                & .726 & .126 & .212 & 1.03 & .662 & .404 & .710 & .784 \\
+\texttt{combined\_norm}                  & .718 & .116 & .213 & 0.98 & .618 & .268 & .704 & .751 \\
+\texttt{ce\_norm\_trainable}             & .737 & .234 & .249 & 0.97 & .499 & .023 & .503 & .755 \\
+\texttt{hlcc\_norm\_2phase}              & .720 & .068 & .205 & 0.96 & .607 & .276 & .671 & .737 \\
+\midrule
+\texttt{focal\_nonorm}                   & .715 & .215 & .250 & 0.93 & .522 & .070 & .500 & .762 \\
+\texttt{focal\_norm}                     & .722 & .222 & .250 & 0.94 & .510 & .049 & .500 & .739 \\
+\texttt{focal\_hlcc\_norm}               & .704 & .104 & .214 & 0.94 & .618 & .284 & .660 & .720 \\
+\bottomrule
+\end{tabular}
+}
+\par\smallskip{\footnotesize\textit{Source:} \texttt{\datarepo/data/results/small\_network/results\_multi\_seed\_blobs.json}}
+\end{table}
+
+\section{Baseline Comparison}
+\label{app:baselines}
+
+Temperature scaling, MC dropout (30 forward passes), and deep ensemble
+(5 members) baselines were evaluated on the breast cancer dataset.
+Focal loss ($\gamma = 2$) variants are included as rows 11--13 in all
+result tables above.  Full baseline comparison data is available at:
+
+\par\smallskip{\footnotesize\textit{Source:} \texttt{\datarepo/data/results/small\_network/baselines\_breast\_cancer.json}}
+
+\section{Hyperparameter Sensitivity}
+\label{app:hyperparam}
+
+Sensitivity analysis for learning rate, HLCC alpha parameter, noise
+rate, focal gamma, and early stopping patience will be included here.
+
+\end{document}

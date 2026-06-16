@@ -114,15 +114,15 @@ of a confidently wrong answer are qualitatively
 different from those of a cautiously correct one.
 
 Gardner-Medwin's certainty-based marking (CBM) for educational
-assessment~\cite{gardnermedwin1995,gardnermedwin2006} recognised this
-asymmetry decades ago, encoding it through discrete penalty scales
-derived from logarithmic proper scoring rules~\cite{good1952}.
-Under CBM, a student who marks high confidence and is wrong loses
-substantially more than one who hedges.  The key insight is simple: in
-most real-world settings, it is better to err on the side of
-under-confidence than over-confidence.  A doctor who says ``I'm not sure,
-let me check'' causes far less harm than one who confidently prescribes
-the wrong treatment.
+assessment~\cite{gardnermedwin1995,gardnermedwin2006,mccallum2010gamedesign}
+recognised this asymmetry decades ago, encoding it through discrete
+penalty scales derived from logarithmic proper scoring
+rules~\cite{good1952}.  Under CBM, a student who marks high confidence
+and is wrong loses substantially more than one who hedges.  The key
+insight is simple: in most real-world settings, it is better to err on
+the side of under-confidence than over-confidence.  A doctor who says
+``I'm not sure, let me check'' causes far less harm than one who
+confidently prescribes the wrong treatment.
 
 Inspired by this asymmetry, we propose the Hybrid Linear-Convex
 Confidence (\hlcc{}) scoring function:
@@ -1586,6 +1586,10 @@ confident correctness.  \citet{gardnermedwin2003} demonstrated that CBM
 improves learning engagement in computer-assisted assessment, and
 \citet{gardnermedwin2019} provided evidence that certainty-based marking
 stimulates deeper thinking in objective tests.
+\citet{mccallum2010gamedesign} applied these principles within
+computer science education, using confidence-based multiple-choice
+assessment with asymmetric reward structures so that students
+explicitly mark certainty alongside answers.
 \hlcc{} can be viewed as a continuous generalisation of CBM: where CBM
 discretises confidence into three levels, bounded \hlcc{} allows any
 $c \in [0,1]$ and unbounded \hlcc{} extends the domain to
@@ -2266,6 +2270,6 @@ adaptation to the model's output distribution.
 % BIBLIOGRAPHY
 % ============================================================
 \bibliographystyle{plainnat}
-\bibliography{hlcc_paper}
+\bibliography{references}
 
 \end{document}

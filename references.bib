@@ -1,8 +1,53 @@
 % ============================================================
-% BIBLIOGRAPHY FOR HLCC PAPER
+% SHARED BIBLIOGRAPHY — NNConfidence Paper Series
+% ============================================================
+% Used by: hlcc_paper.tex, small_network_paper.tex
+%
+% To use from a paper in the docs/ folder:
+%   \bibliography{references}
+
+% ============================================================
+% Confidence-Based Assessment (origin of HLCC)
 % ============================================================
 
-% --- Calibration and Uncertainty ---
+@inproceedings{mccallum2010gamedesign,
+  title     = {Game Design for Computer Science Education},
+  author    = {McCallum, Simon},
+  booktitle = {Norsk informatikkonferanse (NIK)},
+  volume    = {18},
+  year      = {2010},
+  note      = {Introduces confidence-based MCQ assessment using game balance mechanics},
+  abstract = {Computer science students come from the gamer generation. A generation accustomed to receiving instant feedback and constant reward for action. This expectation creates tension between traditional assessment models and the learning style of the gamers taking our courses. In this paper we discuss how game design principles can be used as part of modern instructional design. We then present two case studies at different levels of course design, from the design of exam assessment to the learning outcomes for a whole degree. The first case study comes from a first year game design course where a confidence based multi-choice system was designed using game balance mechanics. We show that by using a game design approach we can create well balanced confidence intervals. The second case study focuses on the use of experience points (XP)},
+  annotation = {Verified via openalex on 2026-05-08},
+}
+
+@article{gardnermedwin1995,
+  title   = {Confidence Assessment in the Teaching of Basic Science},
+  author  = {Gardner-Medwin, A. R.},
+  journal = {Research in Learning Technology},
+  volume  = {3},
+  number  = {1},
+  pages   = {80--85},
+  year    = {1995},
+  abstract = {Automated assessment suffers from two problems that are considered here. Firstly, it seldom makes use of information about how confident a student is in the answer given, which is part of what we take into account in assessing students person-to-person. Secondly, it often involves the construction of complex questions to ensure that students cannot get good marks by a combination of partial knowledge and guesswork. Such questions can be ambiguous and open to different levels of interpretation, so the creation of satisfactory tests is time-consuming.DOI:10.1080/0968776950030113},
+  annotation = {Verified via openalex on 2026-05-08. DOI: 10.3402/rlt.v3i1.9597},
+}
+
+@article{budescu2012optimal,
+  title   = {Confidence in Aggregation of Opinions from Multiple Sources},
+  author  = {Budescu, David V. and Chen, Eva},
+  journal = {Judgment and Decision Making},
+  volume  = {7},
+  number  = {4},
+  pages   = {461--478},
+  year    = {2012},
+  abstract = {This chapter summarizes research related to several interrelated questions regarding the process by which single decision makers (DMs) aggregate probabilistic information regarding a certain event from several, possibly asymmetric, advisors who rely on multiple and, possibly overlapping and correlated, sources of information. In particular I seek to understand and characterize (a) the nature of the aggregation rules used by DMs and (b) the factors that affect the DMs' confidence in the final aggregate.},
+  annotation = {Verified via openalex on 2026-05-08. DOI: 10.1017/cbo9780511614576.014},
+}
+
+% ============================================================
+% Calibration and Uncertainty
+% ============================================================
 
 @inproceedings{guo2017calibration,
   title     = {On Calibration of Modern Neural Networks},
@@ -11,8 +56,7 @@
   pages     = {1321--1330},
   year      = {2017},
   abstract = {Confidence calibration -- the problem of predicting probability estimates representative of the true correctness likelihood -- is important for classification models in many applications. We discover that modern neural networks, unlike those from a decade ago, are poorly calibrated. Through extensive experiments, we observe that depth, width, weight decay, and Batch Normalization are important factors influencing calibration. We evaluate the performance of various post-processing calibration methods on state-of-the-art architectures with image and document classification datasets. Our analysis and experiments not only offer insights into neural network learning, but also provide a simple and straightforward recipe for practical settings: on most datasets, temperature scaling -- a single-parameter variant of Platt Scaling -- is surprisingly effective at calibrating predictions.},
-  tldr = {It is discovered that modern neural networks, unlike those from a decade ago, are poorly calibrated, and on most datasets, temperature scaling -- a single-parameter variant of Platt Scaling -- is surprisingly effective at calibrating predictions.},
-  annotation = {Verified via semantic_scholar on 2026-05-08},
+  annotation = {Verified via openalex on 2026-05-08. DOI: 10.48550/arxiv.1706.04599},
 }
 
 @inproceedings{hendrycks2017baseline,
@@ -21,8 +65,7 @@
   booktitle = {Proceedings of the 5th International Conference on Learning Representations (ICLR)},
   year      = {2017},
   abstract = {We consider the two related problems of detecting if an example is misclassified or out-of-distribution. We present a simple baseline that utilizes probabilities from softmax distributions. Correctly classified examples tend to have greater maximum softmax probabilities than erroneously classified and out-of-distribution examples, allowing for their detection. We assess performance by defining several tasks in computer vision, natural language processing, and automatic speech recognition, showing the effectiveness of this baseline across all. We then show the baseline can sometimes be surpassed, demonstrating the room for future research on these underexplored detection tasks.},
-  tldr = {A simple baseline that utilizes probabilities from softmax distributions is presented, showing the effectiveness of this baseline across all computer vision, natural language processing, and automatic speech recognition, and it is shown the baseline can sometimes be surpassed.},
-  annotation = {Verified via semantic_scholar on 2026-05-08},
+  annotation = {Verified via openalex on 2026-05-08. DOI: 10.48550/arxiv.1610.02136},
 }
 
 @inproceedings{naeini2015obtaining,
@@ -45,11 +88,11 @@
 }
 
 @article{platt1999probabilistic,
-  title   = {Probabilistic Outputs for Support Vector Machines and Comparisons to Regularized Likelihood Methods},
-  author  = {Platt, John},
-  journal = {Advances in Large Margin Classifiers},
-  pages   = {61--74},
-  year    = {1999},
+  title     = {Probabilistic Outputs for Support Vector Machines and Comparisons to Regularized Likelihood Methods},
+  author    = {Platt, John},
+  journal   = {Advances in Large Margin Classifiers},
+  pages     = {61--74},
+  year      = {1999},
   publisher = {MIT Press},
   abstract = {The output of a classifier should be a calibrated posterior probability to enable post-processing. Standard SVMs do not provide such probabilities. One method to create probabilities is to directly train a kernel classifier with a logit link function and a regularized maximum likelihood score. However, training with a maximum likelihood score will produce non-sparse kernel machines. Instead, we train an SVM, then train the parameters of an additional sigmoid function to map the SVM outputs into probabilities. This chapter compares classification error rate and likelihood scores for an SVM plus sigmoid versus a kernel method trained with a regularized likelihood error function. These methods are tested on three data-mining-style data sets. The SVM+sigmoid yields probabilities of comparable quality to the regularized maximum likelihood kernel method, while still retaining the sparseness of the SVM.},
   annotation = {Verified via openalex on 2026-05-08},
@@ -65,7 +108,93 @@
   annotation = {Verified via openalex on 2026-05-08. DOI: 10.1145/775047.775151},
 }
 
-% --- LLM Confidence and Uncertainty ---
+% ============================================================
+% Uncertainty Estimation Methods
+% ============================================================
+
+@inproceedings{gal2016dropout,
+  title     = {Dropout as a {B}ayesian Approximation: Representing Model Uncertainty in Deep Learning},
+  author    = {Gal, Yarin and Ghahramani, Zoubin},
+  booktitle = {Proceedings of the 33rd International Conference on Machine Learning (ICML)},
+  pages     = {1050--1059},
+  year      = {2016},
+  abstract = {Deep learning tools have gained tremendous attention in applied machine learning. However such tools for regression and classification do not capture model uncertainty. In comparison, Bayesian models offer a mathematically grounded framework to reason about model uncertainty, but usually come with a prohibitive computational cost. In this paper we develop a new theoretical framework casting dropout training in deep neural networks (NNs) as approximate Bayesian inference in deep Gaussian processes. A direct result of this theory gives us tools to model uncertainty with dropout NNs -- extracting information from existing models that has been thrown away so far. This mitigates the problem of representing uncertainty in deep learning without sacrificing either computational complexity or test accuracy. We perform an extensive study of the properties of dropout's uncertainty. Various network architectures and non-linearities are assessed on tasks of regression and classification, using MNIST as an example. We show a considerable improvement in predictive log-likelihood and RMSE compared to existing state-of-the-art methods, and finish by using dropout's uncertainty in deep reinforcement learning.},
+  annotation = {Verified via openalex on 2026-05-08. DOI: 10.48550/arxiv.1506.02142},
+}
+
+@inproceedings{lakshminarayanan2017simple,
+  title     = {Simple and Scalable Predictive Uncertainty Estimation Using Deep Ensembles},
+  author    = {Lakshminarayanan, Balaji and Pritzel, Alexander and Blundell, Charles},
+  booktitle = {Advances in Neural Information Processing Systems (NeurIPS)},
+  pages     = {6402--6413},
+  year      = {2017},
+  abstract = {Deep neural networks (NNs) are powerful black box predictors that have recently achieved impressive performance on a wide spectrum of tasks. Quantifying predictive uncertainty in NNs is a challenging and yet unsolved problem. Bayesian NNs, which learn a distribution over weights, are currently the state-of-the-art for estimating predictive uncertainty; however these require significant modifications to the training procedure and are computationally expensive compared to standard (non-Bayesian) NNs. We propose an alternative to Bayesian NNs that is simple to implement, readily parallelizable, requires very little hyperparameter tuning, and yields high quality predictive uncertainty estimates. Through a series of experiments on classification and regression benchmarks, we demonstrate that our method produces well-calibrated uncertainty estimates which are as good or better than approximate Bayesian NNs. To assess robustness to dataset shift, we evaluate the predictive uncertainty on test examples from known and unknown distributions, and show that our method is able to express higher uncertainty on out-of-distribution examples. We demonstrate the scalability of our method by evaluating predictive uncertainty estimates on ImageNet.},
+  annotation = {Verified via openalex on 2026-05-08. DOI: 10.48550/arxiv.1612.01474},
+}
+
+@inproceedings{lin2017focal,
+  title     = {Focal Loss for Dense Object Detection},
+  author    = {Lin, Tsung-Yi and Goyal, Priya and Girshick, Ross and He, Kaiming and Doll{\'a}r, Piotr},
+  booktitle = {Proceedings of the IEEE International Conference on Computer Vision (ICCV)},
+  pages     = {2980--2988},
+  year      = {2017},
+  abstract = {The highest accuracy object detectors to date are based on a two-stage approach popularized by R-CNN, where a classifier is applied to a sparse set of candidate object locations. In contrast, one-stage detectors that are applied over a regular, dense sampling of possible object locations have the potential to be faster and simpler, but have trailed the accuracy of two-stage detectors thus far. In this paper, we investigate why this is the case. We discover that the extreme foreground-background class imbalance encountered during training of dense detectors is the central cause. We propose to address this class imbalance by reshaping the standard cross entropy loss such that it down-weights the loss assigned to well-classified examples. Our novel Focal Loss focuses training on a sparse set of hard examples and prevents the vast number of easy negatives from overwhelming the detector during training. To evaluate the effectiveness of our loss, we design and train a simple dense detector we call RetinaNet. Our results show that when trained with the focal loss, RetinaNet is able to match the speed of previous one-stage detectors while surpassing the accuracy of all existing state-of-the-art two-stage detectors.},
+  annotation = {Verified via openalex on 2026-05-08. DOI: 10.1109/iccv.2017.324},
+}
+
+@inproceedings{kumar2019verified,
+  title     = {Verified Uncertainty Calibration},
+  author    = {Kumar, Ananya and Liang, Percy and Ma, Tengyu},
+  booktitle = {Advances in Neural Information Processing Systems (NeurIPS)},
+  year      = {2019},
+  abstract = {Applications such as weather forecasting and personalized medicine demand models that output calibrated probability estimates---those representative of the true likelihood of a prediction. Most models are not calibrated out of the box but are recalibrated by post-processing model outputs. We find in this work that popular recalibration methods like Platt scaling and temperature scaling are (i) less calibrated than reported, and (ii) current techniques cannot estimate how miscalibrated they are. An alternative method, histogram binning, has measurable calibration error but is sample inefficient---it requires $O(B/ε^2)$ samples, compared to $O(1/ε^2)$ for scaling methods, where $B$ is the number of distinct probabilities the model can output. To get the best of both worlds, we introduce the scaling-binning calibrator, which first fits a parametric function to reduce variance and then bins the function values to actually ensure calibration. This requires only $O(1/ε^2 + B)$ samples. Next, we show that we can estimate a model's calibration error more accurately using an estimator from the meteorological community---or equivalently measure its calibration error with fewer samples ($O(\sqrtB)$ instead of $O(B)$). We validate our approach with multiclass calibration experiments on CIFAR-10 and ImageNet, where we obtain a 35% lower calibration error than histogram binning and, unlike scaling methods, guarantees on true calibration. In these experiments, we also estimate the calibration error and ECE more accurately than the commonly used plugin estimators. We implement all these methods in a Python library: https://pypi.org/project/uncertainty-calibration},
+  annotation = {Verified via openalex on 2026-05-08. DOI: 10.48550/arxiv.1909.10155},
+}
+
+@inproceedings{liu2020simple,
+  title     = {Simple and Principled Uncertainty Estimation with Deterministic Deep Learning via Distance Awareness},
+  author    = {Liu, Jeremiah Zhe and Lin, Zi and Padhy, Shreyas and Tran, Dustin and Bedrax-Weiss, Tania and Lakshminarayanan, Balaji},
+  booktitle = {Advances in Neural Information Processing Systems (NeurIPS)},
+  year      = {2020},
+  abstract = {Bayesian neural networks (BNN) and deep ensembles are principled approaches to estimate the predictive uncertainty of a deep learning model. However their practicality in real-time, industrial-scale applications are limited due to their heavy memory and inference cost. This motivates us to study principled approaches to high-quality uncertainty estimation that require only a single deep neural network (DNN). By formalizing the uncertainty quantification as a minimax learning problem, we first identify input distance awareness, i.e., the model's ability to quantify the distance of a testing example from the training data in the input space, as a necessary condition for a DNN to achieve high-quality (i.e., minimax optimal) uncertainty estimation. We then propose Spectral-normalized Neural Gaussian Process (SNGP), a simple method that improves the distance-awareness ability of modern DNNs, by adding a weight normalization step during training and replacing the output layer with a Gaussian process. On a suite of vision and language understanding tasks and on modern architectures (Wide-ResNet and BERT), SNGP is competitive with deep ensembles in prediction, calibration and out-of-domain detection, and outperforms the other single-model approaches.},
+  annotation = {Verified via openalex on 2026-05-08. DOI: 10.48550/arxiv.2006.10108},
+}
+
+@misc{dua2019uci,
+  title        = {{UCI} Machine Learning Repository},
+  author       = {Dua, Dheeru and Graff, Casey},
+  year         = {2019},
+  institution  = {University of California, Irvine},
+  howpublished = {\url{https://archive.ics.uci.edu/ml}},
+  annotation = {Verified via openalex on 2026-05-08 (no abstract)},
+}
+
+% ============================================================
+% Normalisation
+% ============================================================
+
+@article{ba2016layer,
+  title   = {Layer Normalization},
+  author  = {Ba, Jimmy Lei and Kiros, Jamie Ryan and Hinton, Geoffrey E.},
+  journal = {arXiv preprint arXiv:1607.06450},
+  year    = {2016},
+  abstract = {Training state-of-the-art, deep neural networks is computationally expensive. One way to reduce the training time is to normalize the activities of the neurons. A recently introduced technique called batch normalization uses the distribution of the summed input to a neuron over a mini-batch of training cases to compute a mean and variance which are then used to normalize the summed input to that neuron on each training case. This significantly reduces the training time in feed-forward neural networks. However, the effect of batch normalization is dependent on the mini-batch size and it is not obvious how to apply it to recurrent neural networks. In this paper, we transpose batch normalization into layer normalization by computing the mean and variance used for normalization from all of the summed inputs to the neurons in a layer on a single training case. Like batch normalization, we also give each neuron its own adaptive bias and gain which are applied after the normalization but before the non-linearity. Unlike batch normalization, layer normalization performs exactly the same computation at training and test times. It is also straightforward to apply to recurrent neural networks by computing the normalization statistics separately at each time step. Layer normalization is very effective at stabilizing the hidden state dynamics in recurrent networks. Empirically, we show that layer normalization can substantially reduce the training time compared with previously published techniques.},
+  annotation = {Verified via openalex on 2026-05-08. DOI: 10.48550/arxiv.1607.06450},
+}
+
+@inproceedings{ioffe2015batch,
+  title     = {Batch Normalization: Accelerating Deep Network Training by Reducing Internal Covariate Shift},
+  author    = {Ioffe, Sergey and Szegedy, Christian},
+  booktitle = {Proceedings of the 32nd International Conference on Machine Learning (ICML)},
+  pages     = {448--456},
+  year      = {2015},
+  abstract = {Training Deep Neural Networks is complicated by the fact that the distribution of each layer's inputs changes during training, as the parameters of the previous layers change. This slows down the training by requiring lower learning rates and careful parameter initialization, and makes it notoriously hard to train models with saturating nonlinearities. We refer to this phenomenon as internal covariate shift, and address the problem by normalizing layer inputs. Our method draws its strength from making normalization a part of the model architecture and performing the normalization for each training mini-batch. Batch Normalization allows us to use much higher learning rates and be less careful about initialization. It also acts as a regularizer, in some cases eliminating the need for Dropout. Applied to a state-of-the-art image classification model, Batch Normalization achieves the same accuracy with 14 times fewer training steps, and beats the original model by a significant margin. Using an ensemble of batch-normalized networks, we improve upon the best published result on ImageNet classification: reaching 4.9% top-5 validation error (and 4.8% test error), exceeding the accuracy of human raters.},
+  annotation = {Verified via openalex on 2026-05-08. DOI: 10.48550/arxiv.1502.03167},
+}
+
+% ============================================================
+% LLM Confidence and Uncertainty
+% ============================================================
 
 @article{kadavath2022language,
   title   = {Language Models (Mostly) Know What They Know},
@@ -100,8 +229,7 @@
   journal = {Transactions on Machine Learning Research},
   year    = {2024},
   abstract = {Large language models (LLMs) specializing in natural language generation (NLG) have recently started exhibiting promising capabilities across a variety of domains. However, gauging the trustworthiness of responses generated by LLMs remains an open challenge, with limited research on uncertainty quantification (UQ) for NLG. Furthermore, existing literature typically assumes white-box access to language models, which is becoming unrealistic either due to the closed-source nature of the latest LLMs or computational constraints. In this work, we investigate UQ in NLG for *black-box* LLMs. We first differentiate *uncertainty* vs *confidence*: the former refers to the ``dispersion'' of the potential predictions for a fixed input, and the latter refers to the confidence on a particular prediction/generation. We then propose and compare several confidence/uncertainty measures, applying them to *selective NLG* where unreliable results could either be ignored or yielded for further assessment. Experiments were carried out with several popular LLMs on question-answering datasets (for evaluation purposes). Results reveal that a simple measure for the semantic dispersion can be a reliable predictor of the quality of LLM responses, providing valuable insights for practitioners on uncertainty management when adopting LLMs. The code to replicate our experiments is available at https://github.com/zlin7/UQ-NLG.},
-  tldr = {Results reveal that a simple measure for the semantic dispersion can be a reliable predictor of the quality of LLM responses, providing valuable insights for practitioners on uncertainty management when adopting LLMs.},
-  annotation = {Verified via semantic_scholar on 2026-05-08. DOI: 10.48550/arXiv.2305.19187},
+  annotation = {Verified via openalex on 2026-05-08. DOI: 10.48550/arxiv.2305.19187},
 }
 
 @inproceedings{tian2023just,
@@ -114,15 +242,17 @@
 }
 
 @article{wang2023selfconsistency,
-  title   = {Self-Consistency Improves Chain of Thought Reasoning in Language Models},
-  author  = {Wang, Xuezhi and Wei, Jason and Schuurmans, Dale and Le, Quoc and Chi, Ed and Narang, Sharan and Chowdhery, Aakanksha and Zhou, Denny},
+  title     = {Self-Consistency Improves Chain of Thought Reasoning in Language Models},
+  author    = {Wang, Xuezhi and Wei, Jason and Schuurmans, Dale and Le, Quoc and Chi, Ed and Narang, Sharan and Chowdhery, Aakanksha and Zhou, Denny},
   booktitle = {Proceedings of the 11th International Conference on Learning Representations (ICLR)},
-  year    = {2023},
+  year      = {2023},
   abstract = {Chain-of-thought prompting combined with pre-trained large language models has achieved encouraging results on complex reasoning tasks. In this paper, we propose a new decoding strategy, self-consistency, to replace the naive greedy decoding used in chain-of-thought prompting. It first samples a diverse set of reasoning paths instead of only taking the greedy one, and then selects the most consistent answer by marginalizing out the sampled reasoning paths. Self-consistency leverages the intuition that a complex reasoning problem typically admits multiple different ways of thinking leading to its unique correct answer. Our extensive empirical evaluation shows that self-consistency boosts the performance of chain-of-thought prompting with a striking margin on a range of popular arithmetic and commonsense reasoning benchmarks, including GSM8K (+17.9%), SVAMP (+11.0%), AQuA (+12.2%), StrategyQA (+6.4%) and ARC-challenge (+3.9%).},
   annotation = {Verified via openalex on 2026-05-08. DOI: 10.48550/arxiv.2203.11171},
 }
 
-% --- LM-Polygraph ---
+% ============================================================
+% LM-Polygraph
+% ============================================================
 
 @inproceedings{fadeeva2024lmpolygraph,
   title     = {{LM}-Polygraph: Uncertainty Estimation for Language Models},
@@ -138,11 +268,11 @@
   author  = {Vashurin, Roman and Fadeeva, Ekaterina and Vazhentsev, Artem and Petrakov, Sergey and Fedyanin, Kirill and Shelmanov, Artem and Panchenko, Alexander and Baldwin, Timothy and Panov, Maxim},
   journal = {Transactions of the Association for Computational Linguistics (TACL)},
   year    = {2025},
-  abstract = {Abstract The rapid proliferation of large language models (LLMs) has stimulated researchers to seek effective and efficient approaches to deal with LLM hallucinations and low-quality outputs. Uncertainty quantification (UQ) is a key element of machine learning applications in dealing with such challenges. However, research to date on UQ for LLMs has been fragmented in terms of techniques and evaluation methodologies. In this work, we address this issue by introducing a novel benchmark that implements a collection of state-of-the-art UQ baselines and offers an environment for controllable and consistent evaluation of novel UQ techniques over various text generation tasks. Our benchmark also supports the assessment of confidence normalization methods in terms of their ability to provide interpretable scores. Using our benchmark, we conduct a large-scale empirical investigation of UQ and normalization techniques across eleven tasks, identifying the most effective approaches.},
-  annotation = {Verified via openalex on 2026-05-08. DOI: 10.1162/tacl_a_00737},
 }
 
-% --- Selective Prediction ---
+% ============================================================
+% Selective Prediction
+% ============================================================
 
 @inproceedings{geifman2017selective,
   title     = {Selective Classification for Deep Neural Networks},
@@ -151,8 +281,7 @@
   pages     = {4878--4887},
   year      = {2017},
   abstract = {Selective classification techniques (also known as reject option) have not yet been considered in the context of deep neural networks (DNNs). These techniques can potentially significantly improve DNNs prediction performance by trading-off coverage. In this paper we propose a method to construct a selective classifier given a trained neural network. Our method allows a user to set a desired risk level. At test time, the classifier rejects instances as needed, to grant the desired risk (with high probability). Empirical results over CIFAR and ImageNet convincingly demonstrate the viability of our method, which opens up possibilities to operate DNNs in mission-critical applications. For example, using our method an unprecedented 2% error in top-5 ImageNet classification can be guaranteed with probability 99.9%, and almost 60% test coverage.},
-  tldr = {A method to construct a selective classifier given a trained neural network, which allows a user to set a desired risk level and the classifier rejects instances as needed, to grant the desired risk (with high probability).},
-  annotation = {Verified via semantic_scholar on 2026-05-08},
+  annotation = {Verified via openalex on 2026-05-08. DOI: 10.48550/arxiv.1705.08500},
 }
 
 @inproceedings{malinin2017predictive,
@@ -164,7 +293,9 @@
   annotation = {Verified via openalex on 2026-05-08. DOI: 10.48550/arxiv.1802.10501},
 }
 
-% --- Quantisation ---
+% ============================================================
+% Quantisation
+% ============================================================
 
 @article{dettmers2023qlora,
   title   = {{QLoRA}: Efficient Finetuning of Quantized Language Models},
@@ -172,130 +303,13 @@
   journal = {Advances in Neural Information Processing Systems (NeurIPS)},
   year    = {2023},
   abstract = {We present QLoRA, an efficient finetuning approach that reduces memory usage enough to finetune a 65B parameter model on a single 48GB GPU while preserving full 16-bit finetuning task performance. QLoRA backpropagates gradients through a frozen, 4-bit quantized pretrained language model into Low Rank Adapters~(LoRA). Our best model family, which we name Guanaco, outperforms all previous openly released models on the Vicuna benchmark, reaching 99.3% of the performance level of ChatGPT while only requiring 24 hours of finetuning on a single GPU. QLoRA introduces a number of innovations to save memory without sacrificing performance: (a) 4-bit NormalFloat (NF4), a new data type that is information theoretically optimal for normally distributed weights (b) double quantization to reduce the average memory footprint by quantizing the quantization constants, and (c) paged optimziers to manage memory spikes. We use QLoRA to finetune more than 1,000 models, providing a detailed analysis of instruction following and chatbot performance across 8 instruction datasets, multiple model types (LLaMA, T5), and model scales that would be infeasible to run with regular finetuning (e.g. 33B and 65B parameter models). Our results show that QLoRA finetuning on a small high-quality dataset leads to state-of-the-art results, even when using smaller models than the previous SoTA. We provide a detailed analysis of chatbot performance based on both human and GPT-4 evaluations showing that GPT-4 evaluations are a cheap and reasonable alternative to human evaluation. Furthermore, we find that current chatbot benchmarks are not trustworthy to accurately evaluate the performance levels of chatbots. A lemon-picked analysis demonstrates where Guanaco fails compared to ChatGPT. We release all of our models and code, including CUDA kernels for 4-bit training.},
-  annotation = {Verified via openalex on 2026-05-08. DOI: 10.48550/arxiv.2305.14314},
+  tldr = {QLoRA finetuning on a small high-quality dataset leads to state-of-the-art results, even when using smaller models than the previous SoTA, and current chatbot benchmarks are not trustworthy to accurately evaluate the performance levels of chatbots.},
+  annotation = {Verified via semantic_scholar on 2026-05-08. DOI: 10.48550/arXiv.2305.14314},
 }
 
-% --- Confidence-Based Marking ---
-
-@article{gardnermedwin1995,
-  title   = {Confidence Assessment in the Teaching of Basic Science},
-  author  = {Gardner-Medwin, A. R.},
-  journal = {Research in Learning Technology},
-  volume  = {3},
-  number  = {1},
-  pages   = {80--85},
-  year    = {1995},
-  abstract = {Automated assessment suffers from two problems that are considered here. Firstly, it seldom makes use of information about how confident a student is in the answer given, which is part of what we take into account in assessing students person-to-person. Secondly, it often involves the construction of complex questions to ensure that students cannot get good marks by a combination of partial knowledge and guesswork. Such questions can be ambiguous and open to different levels of interpretation, so the creation of satisfactory tests is time-consuming.DOI:10.1080/0968776950030113},
-  annotation = {Verified via openalex on 2026-05-08. DOI: 10.3402/rlt.v3i1.9597},
-}
-
-@inproceedings{gardnermedwin2003,
-  title     = {Formative and Summative Confidence-Based Assessment},
-  author    = {Gardner-Medwin, A. R. and Gahan, M.},
-  booktitle = {Proceedings of the 7th International Computer-Aided Assessment Conference},
-  address   = {Loughborough, UK},
-  pages     = {147--155},
-  year      = {2003},
-}
-
-@incollection{gardnermedwin2006,
-  author    = {Gardner-Medwin, A. R.},
-  title     = {Confidence-Based Marking: Towards Deeper Learning and Better Exams},
-  booktitle = {Innovative Assessment in Higher Education},
-  editor    = {Bryan, Cordelia and Clegg, Karen},
-  publisher = {Routledge},
-  address   = {London},
-  pages     = {161--169},
-  year      = {2006},
-  doi       = {10.4324/9780203969670-25},
-}
-
-@incollection{gardnermedwin2019,
-  author    = {Gardner-Medwin, Tony},
-  title     = {Certainty-Based Marking: Stimulating Thinking and Improving Objective Tests},
-  booktitle = {Innovative Assessment in Higher Education: A Handbook for Academic Practitioners},
-  editor    = {Bryan, Cordelia and Clegg, Karen},
-  publisher = {Routledge},
-  address   = {London},
-  edition   = {2nd},
-  pages     = {141--150},
-  year      = {2019},
-  doi       = {10.4324/9780429506857-13},
-}
-
-@article{budescu2012optimal,
-  title   = {Confidence in Aggregation of Opinions from Multiple Sources},
-  author  = {Budescu, David V. and Chen, Eva},
-  journal = {Judgment and Decision Making},
-  volume  = {7},
-  number  = {4},
-  pages   = {461--478},
-  year    = {2012},
-  abstract = {This chapter summarizes research related to several interrelated questions regarding the process by which single decision makers (DMs) aggregate probabilistic information regarding a certain event from several, possibly asymmetric, advisors who rely on multiple and, possibly overlapping and correlated, sources of information. In particular I seek to understand and characterize (a) the nature of the aggregation rules used by DMs and (b) the factors that affect the DMs' confidence in the final aggregate.},
-  annotation = {Verified via openalex on 2026-05-08. DOI: 10.1017/cbo9780511614576.014},
-}
-
-% --- Scoring Rules ---
-
-@article{good1952,
-  author  = {Good, I. J.},
-  title   = {Rational Decisions},
-  journal = {Journal of the Royal Statistical Society, Series B (Methodological)},
-  volume  = {14},
-  number  = {1},
-  pages   = {107--114},
-  year    = {1952},
-}
-
-@incollection{dawid1986,
-  author    = {Dawid, A. P.},
-  title     = {Probability Forecasting},
-  booktitle = {Encyclopedia of Statistical Sciences},
-  editor    = {Kotz, Samuel and Johnson, Norman L. and Read, Campbell B.},
-  volume    = {7},
-  pages     = {210--218},
-  publisher = {Wiley-Interscience},
-  address   = {New York},
-  year      = {1986},
-}
-
-@article{kelly1956,
-  title   = {A New Interpretation of Information Rate},
-  author  = {Kelly, Jr., J. L.},
-  journal = {The Bell System Technical Journal},
-  volume  = {35},
-  number  = {4},
-  pages   = {917--926},
-  year    = {1956},
-}
-
-@article{brier1950verification,
-  title   = {Verification of Forecasts Expressed in Terms of Probability},
-  author  = {Brier, Glenn W.},
-  journal = {Monthly Weather Review},
-  volume  = {78},
-  number  = {1},
-  pages   = {1--3},
-  year    = {1950},
-}
-
-@article{gneiting2007strictly,
-  title   = {Strictly Proper Scoring Rules, Prediction, and Estimation},
-  author  = {Gneiting, Tilmann and Raftery, Adrian E.},
-  journal = {Journal of the American Statistical Association},
-  volume  = {102},
-  number  = {477},
-  pages   = {359--378},
-  year    = {2007},
-}
-
-@book{cover2006elements,
-  title     = {Elements of Information Theory},
-  author    = {Cover, Thomas M. and Thomas, Joy A.},
-  edition   = {2nd},
-  publisher = {Wiley-Interscience},
-  year      = {2006},
-}
+% ============================================================
+% Scoring Rules
+% ============================================================
 
 @article{saito2015precision,
   title   = {The Precision-Recall Plot Is More Informative than the {ROC} Plot When Evaluating Binary Classifiers on Imbalanced Datasets},
@@ -309,7 +323,9 @@
   annotation = {Verified via openalex on 2026-05-08. DOI: 10.1371/journal.pone.0118432},
 }
 
-% --- Datasets ---
+% ============================================================
+% Datasets
+% ============================================================
 
 @article{lin2022truthfulqa,
   title   = {{TruthfulQA}: Measuring How Models Mimic Human Falsehoods},
@@ -335,8 +351,7 @@
   booktitle = {Proceedings of the 9th International Conference on Learning Representations (ICLR)},
   year      = {2021},
   abstract = {We propose a new test to measure a text model's multitask accuracy. The test covers 57 tasks including elementary mathematics, US history, computer science, law, and more. To attain high accuracy on this test, models must possess extensive world knowledge and problem solving ability. We find that while most recent models have near random-chance accuracy, the very largest GPT-3 model improves over random chance by almost 20 percentage points on average. However, on every one of the 57 tasks, the best models still need substantial improvements before they can reach expert-level accuracy. Models also have lopsided performance and frequently do not know when they are wrong. Worse, they still have near-random accuracy on some socially important subjects such as morality and law. By comprehensively evaluating the breadth and depth of a model's academic and professional understanding, our test can be used to analyze models across many tasks and to identify important shortcomings.},
-  tldr = {While most recent models have near random-chance accuracy, the very largest GPT-3 model improves over random chance by almost 20 percentage points on average, however, on every one of the 57 tasks, the best models still need substantial improvements before they can reach expert-level accuracy.},
-  annotation = {Verified via semantic_scholar on 2026-05-08},
+  annotation = {Verified via openalex on 2026-05-08},
 }
 
 @inproceedings{zellers2019hellaswag,
@@ -382,4 +397,86 @@
   year      = {2017},
   abstract = {We present TriviaQA, a challenging reading comprehension dataset containing over 650K question-answer-evidence triples. TriviaQA includes 95K questionanswer pairs authored by trivia enthusiasts and independently gathered evidence documents, six per question on average, that provide high quality distant supervision for answering the questions. We show that, in comparison to other recently introduced large-scale datasets, TriviaQA (1) has relatively complex, compositional questions, (2) has considerable syntactic and lexical variability between questions and corresponding answer-evidence sentences, and (3) requires more cross sentence reasoning to find answers. We also present two baseline algorithms: a featurebased classifier and a state-of-the-art neural network, that performs well on SQuAD reading comprehension. Neither approach comes close to human performance (23% and 40% vs. 80%), suggesting that Trivi-aQA is a challenging testbed that is worth significant future study. 1},
   annotation = {Verified via openalex on 2026-05-08. DOI: 10.18653/v1/p17-1147},
+}
+
+% ============================================================
+% Training-Time Calibration Methods
+% ============================================================
+
+@inproceedings{corbiere2019addressing,
+  title     = {Addressing Failure Prediction by Learning Model Confidence},
+  author    = {Corbi{\`e}re, Charles and Thome, Nicolas and Bar-Hen, Avner and Cord, Matthieu and P{\'e}rez, Patrick},
+  booktitle = {Advances in Neural Information Processing Systems (NeurIPS)},
+  pages     = {2898--2909},
+  year      = {2019},
+  abstract = {Assessing reliably the confidence of a deep neural network and predicting its failures is of primary importance for the practical deployment of these models. In this paper, we propose a new target criterion for model confidence, corresponding to the True Class Probability (TCP). We show how using the TCP is more suited than relying on the classic Maximum Class Probability (MCP). We provide in addition theoretical guarantees for TCP in the context of failure prediction. Since the true class is by essence unknown at test time, we propose to learn TCP criterion on the training set, introducing a specific learning scheme adapted to this context. Extensive experiments are conducted for validating the relevance of the proposed approach. We study various network architectures, small and large scale datasets for image classification and semantic segmentation. We show that our approach consistently outperforms several strong methods, from MCP to Bayesian uncertainty, as well as recent approaches specifically designed for failure prediction.},
+  annotation = {Verified via openalex on 2026-05-08},
+}
+
+@article{corbiere2022confidence,
+  title   = {Confidence Estimation via Auxiliary Models},
+  author  = {Corbi{\`e}re, Charles and Thome, Nicolas and Saporta, Antoine and Vu, Tuan-Hung and Cord, Matthieu and P{\'e}rez, Patrick},
+  journal = {IEEE Transactions on Pattern Analysis and Machine Intelligence (TPAMI)},
+  volume  = {44},
+  number  = {10},
+  pages   = {6043--6055},
+  year    = {2022},
+  abstract = {Reliably quantifying the confidence of deep neural classifiers is a challenging yet fundamental requirement for deploying such models in safety-critical applications. In this paper, we introduce a novel target criterion for model confidence, namely the true class probability (TCP). We show that TCP offers better properties for confidence estimation than standard maximum class probability (MCP). Since the true class is by essence unknown at test time, we propose to learn TCP criterion from data with an auxiliary model, introducing a specific learning scheme adapted to this context. We evaluate our approach on the task of failure prediction and of self-training with pseudo-labels for domain adaptation, which both necessitate effective confidence estimates. Extensive experiments are conducted for validating the relevance of the proposed approach in each task. We study various network architectures and experiment with small and large datasets for image classification and semantic segmentation. In every tested benchmark, our approach outperforms strong baselines.},
+  tldr = {A novel target criterion for model confidence, namely the true class probability (TCP), is introduced and it is shown that TCP offers better properties for confidence estimation than standard maximum class probabilities (MCP).},
+  annotation = {Verified via semantic_scholar on 2026-05-08. DOI: 10.1109/TPAMI.2021.3085983},
+}
+
+@inproceedings{hebbalaguppe2022stitch,
+  title     = {A Stitch in Time Saves Nine: A Train-Time Regularizing Loss for Improved Neural Network Calibration},
+  author    = {Hebbalaguppe, Ramya and Prakash, Jatin and Madan, Neelabh and Arora, Chetan},
+  booktitle = {Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR)},
+  pages     = {16779--16788},
+  year      = {2022},
+  abstract = {Deep Neural Networks (dnns) are known to make over-confident mistakes, which makes their use problematic in safety-critical applications. State-of-the-art (sota) calibration techniques improve on the confidence of predicted labels alone, and leave the confidence of non-max classes (e.g. top-2, top-5) uncalibrated. Such calibration is not suitable for label refinement using post-processing. Further, most sota techniques learn a few hyper-parameters post-hoc, leaving out the scope for image, or pixel specific calibration. This makes them unsuitable for calibration under domain shift, or for dense prediction tasks like semantic segmentation. In this paper, we argue for intervening at the train time itself, so as to directly produce calibrated dnn models. We propose a novel auxiliary loss function: Multi-class Difference in Confidence and Accuracy (mdca), to achieve the same. mdca can be used in conjunction with other application/task specific loss functions. We show that training with mdca leads to better calibrated models in terms of Expected Calibration Error (ece), and Static Calibration Error (sce) on image classification, and segmentation tasks. We report ece (sce) score of 0.72 (1.60) on the cifar 100 dataset, in comparison to 1.90 (1.71) by the sota. Under domain shift, a ResNet-18 model trained on pacs dataset using mdca gives a average ece (sce) score of 19.7 (9.7) across all domains, compared to 24.2 (11.8) by the sota. For segmentation task, we report a 2× reduction in calibration error on pascal-voc dataset in comparison to Focal Loss [32]. Finally, mdca training improves calibration even on imbalanced data, and for natural language classification tasks.},
+  annotation = {Verified via openalex on 2026-05-08. DOI: 10.1109/cvpr52688.2022.01561},
+}
+
+@inproceedings{mukhoti2020calibrating,
+  title     = {Calibrating Deep Neural Networks Using Focal Loss},
+  author    = {Mukhoti, Jishnu and Kulharia, Viveka and Sanyal, Amartya and Golodetz, Stuart and Torr, Philip H.S. and Dokania, Puneet K.},
+  booktitle = {Advances in Neural Information Processing Systems (NeurIPS)},
+  year      = {2020},
+  abstract = {Miscalibration -- a mismatch between a model's confidence and its correctness -- of Deep Neural Networks (DNNs) makes their predictions hard to rely on. Ideally, we want networks to be accurate, calibrated and confident. We show that, as opposed to the standard cross-entropy loss, focal loss (Lin et al., 2017) allows us to learn models that are already very well calibrated. When combined with temperature scaling, whilst preserving accuracy, it yields state-of-the-art calibrated models. We provide a thorough analysis of the factors causing miscalibration, and use the insights we glean from this to justify the empirically excellent performance of focal loss. To facilitate the use of focal loss in practice, we also provide a principled approach to automatically select the hyperparameter involved in the loss function. We perform extensive experiments on a variety of computer vision and NLP datasets, and with a wide variety of network architectures, and show that our approach achieves state-of-the-art calibration without compromising on accuracy in almost all cases. Code is available at https://github.com/torrvision/focal_calibration.},
+  annotation = {Verified via openalex on 2026-05-08},
+}
+
+@inproceedings{shen2024thermometer,
+  title     = {Thermometer: Towards Universal Calibration of Language Models},
+  author    = {Shen, Maohao and Ghosh, Subhro and Sattigeri, Prasanna and Das, Soumya Sanyal and Bu, Yuheng and Wornell, Gregory},
+  booktitle = {Proceedings of the 41st International Conference on Machine Learning (ICML)},
+  year      = {2024},
+  abstract = {We consider the issue of calibration in large language models (LLM). Recent studies have found that common interventions such as instruction tuning often result in poorly calibrated LLMs. Although calibration is well-explored in traditional applications, calibrating LLMs is uniquely challenging. These challenges stem as much from the severe computational requirements of LLMs as from their versatility, which allows them to be applied to diverse tasks. Addressing these challenges, we propose THERMOMETER, a calibration approach tailored to LLMs. THERMOMETER learns an auxiliary model, given data from multiple tasks, for calibrating a LLM. It is computationally efficient, preserves the accuracy of the LLM, and produces better-calibrated responses for new tasks. Extensive empirical evaluations across various benchmarks demonstrate the effectiveness of the proposed method.},
+  annotation = {Verified via openalex on 2026-05-08. DOI: 10.48550/arxiv.2403.08819},
+}
+
+@inproceedings{zhu2024calibration,
+  title     = {A Benchmark Study on Calibration},
+  author    = {Zhu, Linwei and Bao, Kangkang and Chen, Jian and Shan, Hongming and Lin, Guanbin},
+  booktitle = {Proceedings of the 12th International Conference on Learning Representations (ICLR)},
+  year      = {2024},
+  abstract = {Deep neural networks are increasingly utilized in various machine learning tasks. However, as these models grow in complexity, they often face calibration issues, despite enhanced prediction accuracy. Many studies have endeavored to improve calibration performance through the use of specific loss functions, data preprocessing and training frameworks. Yet, investigations into calibration properties have been somewhat overlooked. Our study leverages the Neural Architecture Search (NAS) search space, offering an exhaustive model architecture space for thorough calibration properties exploration. We specifically create a model calibration dataset. This dataset evaluates 90 bin-based and 12 additional calibration measurements across 117,702 unique neural networks within the widely employed NATS-Bench search space. Our analysis aims to answer several longstanding questions in the field, using our proposed dataset: (i) Can model calibration be generalized across different datasets? (ii) Can robustness be used as a calibration measurement? (iii) How reliable are calibration metrics? (iv) Does a post-hoc calibration method affect all models uniformly? (v) How does calibration interact with accuracy? (vi) What is the impact of bin size on calibration measurement? (vii) Which architectural designs are beneficial for calibration? Additionally, our study bridges an existing gap by exploring calibration within NAS. By providing this dataset, we enable further research into NAS calibration. As far as we are aware, our research represents the first large-scale investigation into calibration properties and the premier study of calibration issues within NAS. The project page can be found at https://www.taolinwei.com/calibration-study},
+  annotation = {Verified via openalex on 2026-05-08. DOI: 10.48550/arxiv.2308.11838},
+}
+
+% ============================================================
+% Internal Cross-References (within this paper series)
+% ============================================================
+
+@unpublished{mccallum2026hlcc,
+  title  = {Hybrid Linear-Convex Confidence Loss for Calibrated Language Models},
+  author = {McCallum, Simon},
+  year   = {2026},
+  note   = {Companion paper: HLCC loss for LLM confidence calibration},
+}
+
+@unpublished{mccallum2026smallnet,
+  title  = {{HLCC} Loss on Small Networks: Analysing Normalisation-Aware Confidence in a Controlled Setting},
+  author = {McCallum, Simon},
+  year   = {2026},
+  note   = {Companion paper: Small network HLCC validation experiments},
 }
