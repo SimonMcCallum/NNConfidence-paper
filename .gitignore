@@ -19,3 +19,7 @@ figures/build_*.pdf
 
 # Keep the gnuplot-generated fragment .tex and .pdf pairs
 # (these are the actual figure content used by \input{})
+
+# Third-party publisher PDFs: this repo is public, so only our own
+# manuscripts belong under references/
+references/s42256-026-01293-x.pdf
