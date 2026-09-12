@@ -1634,13 +1634,29 @@ into logit-based, verbalised, and consistency-based
 approaches.  \citet{lin2024generating} and \citet{tian2023just} explored
 verbalized confidence elicitation and found that prompting strategies
 significantly affect self-reported confidence quality.
+\citet{geng2024survey} give the broader survey of confidence estimation
+and calibration in language models.  \citet{steyvers2026metacognition}
+place these questions within the psychology of metacognition, comparing
+how humans and language models communicate uncertainty, and
+\citet{kumaran2026commitment} report that the confidence a model states
+tracks its commitment to an answer more closely than the answer's
+correctness.  The read-out comparison of \Cref{sec:readout} is
+consistent with that distinction.
 
 \paragraph{Selective Prediction.}
 \citet{geifman2017selective} formalised selective prediction as
 accuracy-coverage tradeoffs.  The prediction rejection ratio (PRR) was
 introduced by \citet{malinin2017predictive} and adopted by the
 LM-Polygraph framework~\cite{fadeeva2024lmpolygraph} as a standard
-metric for uncertainty benchmarking.
+metric for uncertainty benchmarking.  Abstention is the discrete form of
+the same trade-off.  \citet{wen2025knowlimits} survey abstention in
+language models; \citet{yadkori2024conformal} and
+\citet{tomani2024uncertainty} set the abstention threshold from conformal
+prediction and from an uncertainty estimate respectively; and
+\citet{kumaran2026causal} show causally that a temperature-scaled
+confidence drives the abstention decision in frontier models.  All of
+these describe the two-stage structure, a confidence followed by a
+threshold, for which \hlcc{} supplies the normative threshold.
 
 \paragraph{Proper Scoring Rules.}
 The Brier score~\cite{brier1950verification} and log-loss (negative

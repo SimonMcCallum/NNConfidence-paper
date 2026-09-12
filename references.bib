@@ -241,7 +241,7 @@
   annotation = {Verified via openalex on 2026-05-08. DOI: 10.18653/v1/2023.emnlp-main.330},
 }
 
-@article{wang2023selfconsistency,
+@inproceedings{wang2023selfconsistency,
   title     = {Self-Consistency Improves Chain of Thought Reasoning in Language Models},
   author    = {Wang, Xuezhi and Wei, Jason and Schuurmans, Dale and Le, Quoc and Chi, Ed and Narang, Sharan and Chowdhery, Aakanksha and Zhou, Denny},
   booktitle = {Proceedings of the 11th International Conference on Learning Representations (ICLR)},
@@ -505,4 +505,146 @@
   year    = {2023},
   volume  = {14},
   pages   = {3992},
+}
+
+% ============================================================
+% Proper scoring rules, information theory, and confidence-based marking
+% (cited in hlcc_paper.tex; carried over from hlcc_paper.bib on 2026-09-12)
+% ============================================================
+
+@article{brier1950verification,
+  title     = {Verification of Forecasts Expressed in Terms of Probability},
+  author    = {Brier, Glenn W.},
+  journal   = {Monthly Weather Review},
+  volume    = {78},
+  number    = {1},
+  pages     = {1--3},
+  year      = {1950},
+}
+
+@article{good1952,
+  author    = {Good, I. J.},
+  title     = {Rational Decisions},
+  journal   = {Journal of the Royal Statistical Society, Series B (Methodological)},
+  volume    = {14},
+  number    = {1},
+  pages     = {107--114},
+  year      = {1952},
+}
+
+@article{gneiting2007strictly,
+  title     = {Strictly Proper Scoring Rules, Prediction, and Estimation},
+  author    = {Gneiting, Tilmann and Raftery, Adrian E.},
+  journal   = {Journal of the American Statistical Association},
+  volume    = {102},
+  number    = {477},
+  pages     = {359--378},
+  year      = {2007},
+}
+
+@incollection{dawid1986,
+  author    = {Dawid, A. P.},
+  title     = {Probability Forecasting},
+  booktitle = {Encyclopedia of Statistical Sciences},
+  editor    = {Kotz, Samuel and Johnson, Norman L. and Read, Campbell B.},
+  volume    = {7},
+  pages     = {210--218},
+  publisher = {Wiley-Interscience},
+  address   = {New York},
+  year      = {1986},
+}
+
+@article{kelly1956,
+  title     = {A New Interpretation of Information Rate},
+  author    = {Kelly, Jr., J. L.},
+  journal   = {The Bell System Technical Journal},
+  volume    = {35},
+  number    = {4},
+  pages     = {917--926},
+  year      = {1956},
+}
+
+@book{cover2006elements,
+  title     = {Elements of Information Theory},
+  author    = {Cover, Thomas M. and Thomas, Joy A.},
+  edition   = {2nd},
+  publisher = {Wiley-Interscience},
+  year      = {2006},
+}
+
+@inproceedings{gardnermedwin2003,
+  title     = {Formative and Summative Confidence-Based Assessment},
+  author    = {Gardner-Medwin, A. R. and Gahan, M.},
+  booktitle = {Proceedings of the 7th International Computer-Aided Assessment Conference},
+  address   = {Loughborough, UK},
+  pages     = {147--155},
+  year      = {2003},
+}
+
+@incollection{gardnermedwin2006,
+  author    = {Gardner-Medwin, A. R.},
+  title     = {Confidence-Based Marking: Towards Deeper Learning and Better Exams},
+  booktitle = {Innovative Assessment in Higher Education},
+  editor    = {Bryan, Cordelia and Clegg, Karen},
+  publisher = {Routledge},
+  address   = {London},
+  pages     = {161--169},
+  year      = {2006},
+  doi       = {10.4324/9780203969670-25},
+}
+
+@incollection{gardnermedwin2019,
+  author    = {Gardner-Medwin, Tony},
+  title     = {Certainty-Based Marking: Stimulating Thinking and Improving Objective Tests},
+  booktitle = {Innovative Assessment in Higher Education: A Handbook for Academic Practitioners},
+  editor    = {Bryan, Cordelia and Clegg, Karen},
+  publisher = {Routledge},
+  address   = {London},
+  edition   = {2nd},
+  pages     = {141--150},
+  year      = {2019},
+  doi       = {10.4324/9780429506857-13},
+}
+
+% ============================================================
+% Abstention and metacognition (added 2026-09-12 alongside the Kumaran read-out section)
+% ============================================================
+
+@inproceedings{geng2024survey,
+  title     = {A Survey of Confidence Estimation and Calibration in Large Language Models},
+  author    = {Geng, Jiahui and Cai, Fengyu and Wang, Yuxia and Koeppl, Heinz and Nakov, Preslav and Gurevych, Iryna},
+  booktitle = {Proceedings of the 2024 Conference of the North American Chapter of the Association for Computational Linguistics: Human Language Technologies (Volume 1: Long Papers)},
+  pages     = {6577--6595},
+  year      = {2024},
+  doi       = {10.18653/v1/2024.naacl-long.366},
+}
+
+@article{kumaran2026commitment,
+  author    = {Kumaran, Dharshan},
+  title     = {Reported Confidence in {LLMs} Tracks Commitment More Than Correctness},
+  journal   = {arXiv preprint arXiv:2606.29490},
+  year      = {2026},
+}
+
+@article{wen2025knowlimits,
+  author    = {Wen, Bingbing and others},
+  title     = {Know Your Limits: A Survey of Abstention in Large Language Models},
+  journal   = {Transactions of the Association for Computational Linguistics},
+  year      = {2025},
+  volume    = {13},
+  pages     = {529--556},
+}
+
+@article{yadkori2024conformal,
+  author    = {Yadkori, Yasin Abbasi and others},
+  title     = {Mitigating {LLM} Hallucinations via Conformal Abstention},
+  journal   = {arXiv preprint arXiv:2405.01563},
+  year      = {2024},
+}
+
+@article{tomani2024uncertainty,
+  author    = {Tomani, Christian and Chaudhuri, Kamalika and Evtimov, Ivan and Cremers, Daniel and Ibrahim, Mark},
+  title     = {Uncertainty-Based Abstention in {LLMs} Improves Safety and Reduces Hallucinations},
+  journal   = {arXiv preprint arXiv:2404.10960},
+  year      = {2024},
 }
