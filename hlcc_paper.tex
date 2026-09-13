@@ -1261,69 +1261,76 @@ steps.
 \label{sec:readout}
 % ============================================================
 
-\citet{kumaran2026causal} report that in GPT-4o and Gemma~3 27B a
-temperature-scaled log-probability confidence predicts when a model takes
-an explicit ``none of the above'' option, and that steering the
-corresponding activation direction moves abstention causally.  Their
-reading is that this confidence and a separately elicited verbal
-confidence are both lossy read-outs of one richer internal quantity.
-That is independent support for the position argued in
-\Cref{sec:discussion}: maximum softmax probability is a stronger baseline
-than its reputation suggests.
+When a student is told that a question may have no correct answer, and
+that they may say so rather than guess, the decision to decline tells us
+something about the student.  It is not obvious what.  Declining can mean
+that the student knows that they do not know, or it can mean only that
+the form invited it.  \citet{kumaran2026causal} asked the same question
+of language models.  In GPT-4o and Gemma~3 27B they found that a
+temperature-scaled log-probability confidence predicts when the model
+takes an explicit ``none of the above'' option, and that steering the
+matching direction in the activations moves the rate of abstention.
+Their interpretation is that this confidence, and a verbal confidence
+elicited separately, are imperfect measures of one richer quantity inside
+the model.  This is independent support for the position taken in
+\Cref{sec:discussion}, that the maximum softmax probability is a better
+baseline than its reputation suggests.
 
-We repeated their Phases~1, 2 and 4 on their exact \readoutNQuestions{}
-SimpleQA multiple-choice questions, using their option arrangement and
-prompts, across \readoutNModels{} open-weight models from 1.5B to 32.5B
-parameters (\Cref{tab:readout}).  Alongside the option logits we recorded
-the per-layer structural statistics of \Cref{sec:layer-analysis} at the
-pre-answer token, which lets the same comparison be run with and without
-them.
+We repeated their Phases~1, 2 and 4 on their \readoutNQuestions{} SimpleQA
+multiple-choice questions, with their option arrangement and their
+prompts, on \readoutNModels{} open-weight models from 1.5B to 32.5B
+parameters (\Cref{tab:readout}).  At the token before the answer we also
+recorded the structural statistics of \Cref{sec:layer-analysis} for every
+layer, so that the same analysis could be run with and without them and
+the two compared on the same questions.
 
-\paragraph{Calibration transfers; discrimination does not.}
-Under the same five-fold temperature scaling, expected calibration error
-across the nine models (\readoutEceMin--\readoutEceMax) brackets the
-0.046 reported for GPT-4o, but AUROC for correctness reaches only
-\readoutAurocMin--\readoutAurocMax against their 0.90.  Aggregate
-calibration is therefore reproducible at this scale while the ability to
-separate correct from incorrect answers is not, which is the same
-separation between calibration and discrimination seen in
-\Cref{sec:results}.
+Calibration transfers to these smaller models and discrimination does
+not.  Under the same five-fold temperature scaling the expected
+calibration error of the nine models, between \readoutEceMin{} and
+\readoutEceMax{}, brackets the 0.046 reported for GPT-4o.  The AUROC for
+correctness reaches only \readoutAurocMin{} to \readoutAurocMax{} against
+their 0.90.  A model can be well calibrated on average and still be almost
+unable to say which of its answers are wrong.  The same separation between
+calibration and discrimination was found in \Cref{sec:results}.
 
-\paragraph{Abstention policies are close to deterministic.}
-Abstention rate ranges from \readoutAbstainMin{} in DeepSeek-R1-14B to
-\readoutAbstainMax{} in Mistral-Small-24B, against
-\readoutKumaranAbstain{} for GPT-4o.  Most open models adopt or ignore
-the opt-out wholesale rather than applying a threshold to their own
-confidence, so an abstention rate at this scale is a weaker proxy for
-internal confidence than it is for the frontier models in the original
-study.
+Abstention is close to a fixed habit in most of these models.  The rate
+ranges from \readoutAbstainMin{} in DeepSeek-R1-14B to
+\readoutAbstainMax{} in Mistral-Small-24B.  GPT-4o abstained on
+\readoutKumaranAbstain{} of the same questions.  Most of the open models
+either take the opt-out wholesale or ignore it.  Thus abstention at this
+scale is a weaker indicator of internal confidence than it was for the
+frontier models.
 
-\paragraph{Structural statistics track the decision, not the outcome.}
-Adding the per-layer structural statistics to calibrated confidence
-raises out-of-fold AUROC for the abstain decision in
-\readoutNAbstainPositive{} of \readoutNModels{} models, by
-\readoutDAurocAbstainMean{} on average, while leaving correctness no
-better (\readoutDAurocCorrectMean{} on average, negative in
-\readoutNCorrectNegative{} of \readoutNModels{}).  The same two signs
-hold on ARC-Challenge for \readoutNArcModels{} models, where accuracy is
-much higher (\readoutArcAccMin--\readoutArcAccMax):
-\readoutArcDAurocAbstainMean{} for abstention and
+The structural statistics gave the result we did not expect, and it is
+the one that matters for this paper.  Adding them to the calibrated
+confidence raised the out-of-fold AUROC for the abstention decision in
+\readoutNAbstainPositive{} of the \readoutNModels{} models, by
+\readoutDAurocAbstainMean{} on average.  Correctness was left no better,
+with a mean change of \readoutDAurocCorrectMean{} across the nine and a
+negative change in \readoutNCorrectNegative{} of them.  The same pattern
+holds on ARC-Challenge, where the \readoutNArcModels{} models tested are
+far more accurate (\readoutArcAccMin{} to \readoutArcAccMax{}), with a
+change of \readoutArcDAurocAbstainMean{} for abstention and
 \readoutArcDAurocCorrectMean{} for correctness.
 
-This is the opposite of the pattern we expected, and it admits two
-readings.  The statistics may carry information about the forward pass
-that shapes which token is emitted, including the opt-out token, without
-carrying information about whether the selected answer is factually
-right.  Alternatively, the abstention target is heavily imbalanced in
-several of these models, and a large increment is easier to obtain on an
-imbalanced target than on the roughly balanced correctness target.  The
-correctness increments are measured out of fold, so their negative sign
-is not an overfitting artefact, but the abstention increments should be
-read with that imbalance in mind.  On this benchmark the result does not
-support treating these structural statistics as a correctness signal, and
-it is consistent with the \citet{kumaran2026causal} position that what is
-legible in the activations sits closer to the policy than to the truth of
-the answer.
+There are two ways of reading this.  The first is that the structural
+statistics carry information about the forward pass which decides what
+token is produced, including the token that declines the question, without
+carrying information about whether the chosen answer is right.  The second
+is that the abstention target is very unbalanced in several of these
+models, and a large gain comes more easily on an unbalanced target than on
+the roughly balanced correctness target.  Because the correctness figures
+are measured out of fold, their negative sign is not an artefact of
+over-fitting.  The abstention figures should be read with the imbalance in
+mind.  Either way, the structural statistics cannot be used as a signal of
+correctness on this benchmark.  This agrees with \citet{kumaran2026causal},
+for whom what can be read from the activations is closer to the decision
+the model makes than to the truth of its answer.
+
+The earlier work on familiarity in associative memories would lead us to
+expect this~\cite{robins2004robust}.  The energy profile of a Hopfield
+network tells a learnt pattern from a spurious one.  It says nothing at all
+about whether the pattern recalled is the right one.
 
 \begin{table}[htbp]
 \centering
